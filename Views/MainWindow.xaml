@@ -191,18 +191,30 @@
                         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Auto">
                             <TreeView x:Name="DirectoryTree"
-                                      ItemsSource="{Binding RootNode.Children}"
-                                      SelectedItemChanged="DirectoryTree_SelectedItemChanged">
+          VirtualizingStackPanel.IsVirtualizing="False"
+          ItemsSource="{Binding RootNode.Children}"
+          SelectedItemChanged="DirectoryTree_SelectedItemChanged">
+                                <TreeView.ItemContainerStyle>
+                                    <Style TargetType="TreeViewItem">
+                                        <Setter Property="IsExpanded"
+                    Value="{Binding IsExpanded, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <Setter Property="IsSelected"
+                    Value="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                        <Setter Property="Background" Value="Transparent"/>
+                                        <Setter Property="Padding" Value="2,3"/>
+                                    </Style>
+                                </TreeView.ItemContainerStyle>
                                 <TreeView.ItemTemplate>
                                     <HierarchicalDataTemplate DataType="{x:Type models:FileNode}"
-                                                              ItemsSource="{Binding Children}">
+                                  ItemsSource="{Binding Children}">
                                         <StackPanel Orientation="Horizontal" Margin="0,1">
                                             <TextBlock Text="{Binding Converter={StaticResource FileTypeIcon}}"
-                                                       Margin="0,0,4,0" FontSize="12"/>
+                           Margin="0,0,4,0" FontSize="12"/>
                                             <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"/>
                                             <TextBlock Text="{Binding SizeText}" FontSize="10" Margin="6,0,0,0"
-                                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                                       VerticalAlignment="Center"/>
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </HierarchicalDataTemplate>
                                 </TreeView.ItemTemplate>

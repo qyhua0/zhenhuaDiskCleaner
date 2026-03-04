@@ -19,7 +19,12 @@ namespace ZhenhuaDiskCleaner.Views
         {
             InitializeComponent();
             DataContext = new MainViewModel();
-            TreemapView.NodeClicked += node => { VM.OnTreemapNodeClicked(node); SyncTree(node); };
+            TreemapView.NodeClicked += node => {
+                VM.SelectedNode = node;
+                VM.HighlightedNode = node;
+                VM.OnTreemapNodeClicked(node);
+                SyncTree(node);
+            };
             TreemapView.NodeHovered += node => VM.OnTreemapNodeHovered(node);
 
 
@@ -48,12 +53,140 @@ namespace ZhenhuaDiskCleaner.Views
             if (e.NewValue is FileNode n) { VM.SelectedNode = n; VM.HighlightedNode = n; }
         }
 
+
+
         private void SyncTree(FileNode target)
         {
+            System.Diagnostics.Debug.WriteLine($"SyncTree called: {target?.FullPath}");
+            if (target == null) return;
+
+            // 1. 先清除所有已选中和展开状态（只清路径上的，性能更好）
+            // 2. 展开从根到目标的所有祖先
+            // 3. 选中目标节点
+            // 全部操作在数据模型上完成，UI 自动跟随绑定更新
+
+            // 构建祖先链
             var chain = new List<FileNode>();
-            for (var cur = target; cur != null; cur = cur.Parent) chain.Add(cur);
+            for (var cur = target; cur != null; cur = cur.Parent)
+                chain.Add(cur);
             chain.Reverse();
-            ExpandChain(DirectoryTree.Items, chain, 0);
+
+            // 清除之前选中的节点
+            ClearSelection(VM.RootNode);
+
+            // 展开路径上所有祖先目录
+            foreach (var node in chain)
+            {
+                if (node.IsDirectory)
+                    node.IsExpanded = true;
+            }
+
+            // 选中目标节点
+            target.IsSelected = true;
+
+            // 等UI渲染后再滚动到目标位置
+            Dispatcher.InvokeAsync(() =>
+            {
+                ScrollToSelected(DirectoryTree);
+            }, System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        // 递归清除选中状态
+        private static void ClearSelection(FileNode? node)
+        {
+            if (node == null) return;
+            if (node.IsSelected) node.IsSelected = false;
+            foreach (var child in node.Children)
+                ClearSelection(child);
+        }
+
+        // 递归找到选中的 TreeViewItem 并滚动到视图
+        private static bool ScrollToSelected(ItemsControl container)
+        {
+            if (container == null) return false;
+
+            foreach (var item in container.Items)
+            {
+                if (container.ItemContainerGenerator
+                        .ContainerFromItem(item) is not TreeViewItem tvi) continue;
+
+                if (item is FileNode fn && fn.IsSelected)
+                {
+                    tvi.BringIntoView();
+                    return true;
+                }
+
+                if (item is FileNode dir && dir.IsExpanded)
+                {
+                    if (ScrollToSelected(tvi)) return true;
+                }
+            }
+            return false;
+        }
+        private async Task ExpandToNodeAsync(ItemsControl container,
+            List<FileNode> chain, int depth, FileNode target)
+        {
+            if (depth >= chain.Count) return;
+            var current = chain[depth];
+
+            // 等待容器生成
+            await WaitForContainerAsync(container, current);
+
+            var tvi = container.ItemContainerGenerator
+                          .ContainerFromItem(current) as TreeViewItem;
+            if (tvi == null) return;
+
+            // 展开当前节点
+            tvi.IsExpanded = true;
+
+            // 等待子项容器生成
+            await Task.Yield();
+            tvi.UpdateLayout();
+
+            if (depth == chain.Count - 1)
+            {
+                // 到达目标，选中并滚动
+                tvi.IsSelected = true;
+                tvi.BringIntoView();
+
+                // 如果目标是文件（不是目录），选中父目录下对应的文件子项
+                if (!target.IsDirectory && tvi.Items.Count > 0)
+                {
+                    await WaitForContainerAsync(tvi, target);
+                    var fileTvi = tvi.ItemContainerGenerator
+                                      .ContainerFromItem(target) as TreeViewItem;
+                    if (fileTvi != null)
+                    {
+                        fileTvi.IsSelected = true;
+                        fileTvi.BringIntoView();
+                    }
+                }
+                return;
+            }
+
+            await ExpandToNodeAsync(tvi, chain, depth + 1, target);
+        }
+
+        private async Task WaitForContainerAsync(ItemsControl container, object item)
+        {
+            // 最多等待 300ms，每 20ms 检查一次
+            for (int i = 0; i < 15; i++)
+            {
+                var tvi = container.ItemContainerGenerator
+                              .ContainerFromItem(item);
+                if (tvi != null) return;
+
+                // 强制布局更新
+                container.UpdateLayout();
+                await Task.Delay(20);
+
+                // 尝试滚动到该项使其虚拟化容器生成
+                if (container is TreeViewItem parentTvi)
+                {
+                    parentTvi.BringIntoView();
+                    parentTvi.UpdateLayout();
+                }
+            }
         }
 
         private bool ExpandChain(System.Collections.IEnumerable items, List<FileNode> chain, int depth)

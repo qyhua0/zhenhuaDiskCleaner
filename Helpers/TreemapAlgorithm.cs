@@ -10,34 +10,37 @@ namespace ZhenhuaDiskCleaner.Helpers
             var result = new List<TreemapNode>();
             if (bounds.Width < 1 || bounds.Height < 1) return result;
 
+            // 按目录分组收集叶子节点，同目录在一起
             var leaves = new List<FileNode>();
-            CollectLeaves(root, leaves);
+            CollectByDirectory(root, leaves);
             if (leaves.Count == 0) return result;
 
-            // 大小为0的文件赋予最小值1，保证都能显示
             foreach (var f in leaves)
                 if (f.Size <= 0) f.Size = 1;
 
             long total = leaves.Sum(f => f.Size);
-            leaves.Sort((a, b) => b.Size.CompareTo(a.Size));
-
             Layout(leaves, 0, leaves.Count - 1, bounds, total, true, result);
             return result;
         }
 
-        private static void CollectLeaves(FileNode node, List<FileNode> leaves)
+        // 深度优先：先输出当前目录的文件，再递归子目录
+        // 保证同目录文件相邻
+        private static void CollectByDirectory(FileNode node, List<FileNode> leaves)
         {
             if (!node.IsDirectory)
             { leaves.Add(node); return; }
-            foreach (var c in node.Children)
-                CollectLeaves(c, leaves);
+
+            // 先加本目录下的直属文件
+            foreach (var c in node.Children.Where(c => !c.IsDirectory))
+                leaves.Add(c);
+
+            // 再递归子目录（按子目录大小降序，大目录优先，视觉更整齐）
+            foreach (var c in node.Children
+                         .Where(c => c.IsDirectory)
+                         .OrderByDescending(c => c.Size))
+                CollectByDirectory(c, leaves);
         }
 
-        /// <summary>
-        /// 递归切片布局：
-        /// 每次按面积比例将当前矩形切分为两半，
-        /// 左/上半放前一组，右/下半放后一组，方向交替。
-        /// </summary>
         private static void Layout(
             List<FileNode> items, int lo, int hi,
             Rect rect, long total,
@@ -47,7 +50,6 @@ namespace ZhenhuaDiskCleaner.Helpers
             if (lo > hi) return;
             if (rect.Width < 0.5 || rect.Height < 0.5) return;
 
-            // 只剩一个节点，直接占满当前矩形
             if (lo == hi)
             {
                 output.Add(new TreemapNode
@@ -62,9 +64,7 @@ namespace ZhenhuaDiskCleaner.Helpers
                 return;
             }
 
-            // 找中间分割点：使左右两组面积之和尽量接近各占一半
-            int mid = FindMid(items, lo, hi, total);
-
+            int mid = FindMid(items, lo, hi);
             long leftSum = Sum(items, lo, mid);
             long rightSum = Sum(items, mid + 1, hi);
             long bothSum = leftSum + rightSum;
@@ -86,14 +86,13 @@ namespace ZhenhuaDiskCleaner.Helpers
                 rightRect = new Rect(rect.X, splitY, rect.Width, rect.Height * (1 - ratio));
             }
 
-            // 交替方向递归
             Layout(items, lo, mid, leftRect, leftSum, !splitHoriz, output);
             Layout(items, mid + 1, hi, rightRect, rightSum, !splitHoriz, output);
         }
 
-        // 找最优分割点，使两组面积尽量均衡
-        private static int FindMid(List<FileNode> items, int lo, int hi, long total)
+        private static int FindMid(List<FileNode> items, int lo, int hi)
         {
+            long total = Sum(items, lo, hi);
             long half = total / 2;
             long acc = 0;
             for (int i = lo; i < hi; i++)
