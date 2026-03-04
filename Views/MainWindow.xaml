@@ -19,6 +19,8 @@
         <conv:NullToVisibilityConverter x:Key="NullToVis"/>
         <conv:FileTypeToIconConverter x:Key="FileTypeIcon"/>
         <conv:BoolToNegateConverter x:Key="BoolNeg"/>
+        <conv:FileTypeToIconConverter x:Key="FileTypeToIconConverter"/>
+
     </Window.Resources>
 
     <Border CornerRadius="10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" ClipToBounds="True">
@@ -60,46 +62,82 @@
             <Border Grid.Row="1" Background="{StaticResource BackgroundMediumBrush}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="12,10">
                 <StackPanel>
+
+
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
+                            <!-- 0: 驱动器标签 -->
                             <ColumnDefinition Width="170"/>
+                            <!-- 1: 驱动器下拉 -->
                             <ColumnDefinition Width="10"/>
+                            <!-- 2: 间距 -->
                             <ColumnDefinition Width="*"/>
+                            <!-- 3: 自定义路径 -->
                             <ColumnDefinition Width="10"/>
+                            <!-- 4: 间距 -->
                             <ColumnDefinition Width="Auto"/>
+                            <!-- 5: 浏览按钮 -->
                             <ColumnDefinition Width="8"/>
+                            <!-- 6: 间距 -->
                             <ColumnDefinition Width="Auto"/>
+                            <!-- 7: 扫描按钮组/停止 -->
                             <ColumnDefinition Width="8"/>
-                            <ColumnDefinition Width="36"/>
+                            <!-- 8: 间距 -->
+                            <ColumnDefinition Width="Auto"/>
+                            <!-- 9: 刷新按钮 -->
                         </Grid.ColumnDefinitions>
 
+                        <!-- 驱动器标签 -->
                         <TextBlock Grid.Column="0" Text="驱动器:" VerticalAlignment="Center"
-                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,8,0" FontSize="13"/>
+               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,8,0" FontSize="13"/>
+
+                        <!-- 驱动器下拉 -->
                         <ComboBox Grid.Column="1" ItemsSource="{Binding Drives}"
-                                  SelectedItem="{Binding SelectedDrive}" DisplayMemberPath="DisplayName" 
-                                  Height="32" IsEnabled="{Binding IsScanning, Converter={StaticResource BoolNeg}}"/>
+              SelectedItem="{Binding SelectedDrive}" DisplayMemberPath="DisplayName"
+              Height="32" IsEnabled="{Binding CanScan}"/>
+
+                        <!-- 自定义路径 -->
                         <TextBox Grid.Column="3" Text="{Binding CustomPath, UpdateSourceTrigger=PropertyChanged}"
-                                 Height="32" VerticalContentAlignment="Center"
-                                 IsEnabled="{Binding IsScanning, Converter={StaticResource BoolNeg}}"
-                                 ToolTip="输入自定义路径（留空则使用上方选中驱动器）"/>
+             Height="32" VerticalContentAlignment="Center"
+             IsEnabled="{Binding CanScan}"
+             ToolTip="输入自定义路径（留空则使用上方选中驱动器）"/>
+
+                        <!-- 浏览按钮 -->
                         <Button Grid.Column="5" Content="📂 浏览" Height="32" Padding="12,0"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                IsEnabled="{Binding IsScanning, Converter={StaticResource BoolNeg}}"
-                                Command="{Binding BrowseDirectoryCommand}"/>
-                        <Button Grid.Column="7" Height="32" Padding="14,0" Style="{StaticResource PrimaryButtonStyle}"
-                                Command="{Binding StartScanCommand}"
-                                Visibility="{Binding IsScanning, Converter={StaticResource InvBoolToVis}}">
-                            <TextBlock Text="🔍 开始扫描"/>
-                        </Button>
-                        <Button Grid.Column="7" Height="32" Padding="14,0" Style="{StaticResource DangerButtonStyle}"
-                                Command="{Binding CancelScanCommand}"
-                                Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}">
+            Style="{StaticResource SecondaryButtonStyle}"
+            IsEnabled="{Binding CanScan}"
+            Command="{Binding BrowseDirectoryCommand}"/>
+
+                        <!-- 扫描按钮组（非扫描时显示） -->
+                        <StackPanel Grid.Column="7" Orientation="Horizontal" VerticalAlignment="Center"
+                Visibility="{Binding IsScanning, Converter={StaticResource InvBoolToVis}}">
+                            <Button Height="32" Padding="14,0"
+                Style="{StaticResource PrimaryButtonStyle}"
+                Command="{Binding StartScanCommand}"
+                IsEnabled="{Binding CanScan}">
+                                <TextBlock Text="🔍 开始扫描"/>
+                            </Button>
+                            <Button Content="⚡ 快速扫描"
+                Command="{Binding QuickScanCommand}"
+                IsEnabled="{Binding CanScan}"
+                ToolTip="使用 NTFS MFT 快速扫描（需管理员权限，仅支持 NTFS 分区）"
+                Style="{StaticResource PrimaryButtonStyle}"
+                Margin="4,0,0,0" Padding="12,0" Height="32"/>
+                        </StackPanel>
+
+                        <!-- 停止按钮（扫描时显示） -->
+                        <Button Grid.Column="7" Height="32" Padding="14,0"
+            Style="{StaticResource DangerButtonStyle}"
+            Command="{Binding CancelScanCommand}"
+            Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}">
                             <TextBlock Text="⏹ 停止"/>
                         </Button>
-                        <Button Grid.Column="9" Height="32" ToolTip="刷新驱动器"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Command="{Binding RefreshDrivesCommand}">
+
+                        <!-- 刷新按钮 -->
+                        <Button Grid.Column="8" Height="32" ToolTip="刷新驱动器"
+            Style="{StaticResource SecondaryButtonStyle}"
+            Command="{Binding RefreshDrivesCommand}" Grid.ColumnSpan="2" Margin="4,0,0,0">
                             <TextBlock Text="🔄"/>
                         </Button>
                     </Grid>
@@ -187,9 +225,17 @@
                         <!-- Treemap -->
                         <TabItem Header="🗂 Treemap">
                             <Grid>
-                                <ctrl:TreemapControl x:Name="TreemapView"
-                                                     RootNode="{Binding RootNode}"
-                                                     HighlightedNode="{Binding HighlightedNode}"/>
+                            
+                                <ctrl:TreemapControl
+    x:Name="TreemapView"
+    RootNode="{Binding RootNode}"
+    HighlightedNode="{Binding HighlightedNode}"
+    SelectedNode="{Binding SelectedNode}"
+    HorizontalAlignment="Stretch"
+    VerticalAlignment="Stretch"/>
+                                
+                                
+                                
                                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center"
                                             Visibility="{Binding HasScanResult, Converter={StaticResource InvBoolToVis}}">
                                     <TextBlock Text="💿" FontSize="52" HorizontalAlignment="Center" Margin="0,0,0,16"/>
@@ -204,25 +250,7 @@
                                 <Border HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="12"
                                         Background="#BB1E1E2E" CornerRadius="8" Padding="10,8"
                                         Visibility="{Binding HasScanResult, Converter={StaticResource BoolToVis}}">
-                                    <StackPanel>
-                                        <TextBlock Text="图例" FontSize="11" FontWeight="SemiBold" Margin="0,0,0,6"
-                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
-                                        <ItemsControl ItemsSource="{Binding FileTypeStats}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <StackPanel Orientation="Horizontal" Margin="0,2">
-                                                        <Border Width="9" Height="9" CornerRadius="2"
-                                                                VerticalAlignment="Center" Margin="0,0,6,0"
-                                                                Background="{Binding Color, Converter={StaticResource ColorToBrush}}"/>
-                                                        <TextBlock Text="{Binding TypeName}" FontSize="11" Width="40"
-                                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
-                                                        <TextBlock Text="{Binding Percentage, StringFormat={}{0:F0}%}"
-                                                                   FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"/>
-                                                    </StackPanel>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
+                                    
                                 </Border>
                             </Grid>
                         </TabItem>
@@ -261,14 +289,26 @@
                                     </ListView.ContextMenu>
                                     <ListView.View>
                                         <GridView>
-                                            <GridViewColumn Width="30">
-                                                <GridViewColumn.CellTemplate>
-                                                    <DataTemplate>
-                                                        <TextBlock Text="{Binding Converter={StaticResource FileTypeIcon}}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                   
-                                                    </DataTemplate>
-                                                </GridViewColumn.CellTemplate>
-                                            </GridViewColumn>
+                                          
+                                            
+                                            
+                                            <GridViewColumn Width="40">
+    <GridViewColumn.CellTemplate>
+        <DataTemplate>
+                 <TextBlock Text="{Binding Converter={StaticResource FileTypeToIconConverter}}"                       
+                       FontSize="18"
+                       FontFamily="Segoe UI Emoji"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextAlignment="Center"
+                       Width="32"
+                       LineHeight="24"
+                       LineStackingStrategy="BlockLineHeight"/>
+        </DataTemplate>
+    </GridViewColumn.CellTemplate>
+</GridViewColumn>
+                                            
+                                            
                                             <GridViewColumn Header="名称" Width="200">
                                                 <GridViewColumn.CellTemplate>
                                                     <DataTemplate>

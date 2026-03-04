@@ -206,9 +206,76 @@
     </Style>
 
     <!-- ScrollBar Style -->
+    <!-- ===== 深色滚动条 ===== -->
+    <!-- ===== 深色滚动条（竖向） ===== -->
+    <ControlTemplate x:Key="DarkScrollBarThumb" TargetType="Thumb">
+        <Border Background="#4A4A6A" CornerRadius="3" Margin="2,1"/>
+        <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="#6C63FF"/>
+            </Trigger>
+            <Trigger Property="IsDragging" Value="True">
+                <Setter Property="Background" Value="#8B84FF"/>
+            </Trigger>
+        </ControlTemplate.Triggers>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="DarkVerticalScrollBar" TargetType="ScrollBar">
+        <Border Background="#1E1E2E" Width="8" CornerRadius="4">
+            <Track x:Name="PART_Track" IsDirectionReversed="True" Margin="0,2">
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageUpCommand"
+                              Background="Transparent" BorderThickness="0" Height="0" Opacity="0"/>
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                    <Thumb Template="{StaticResource DarkScrollBarThumb}" MinHeight="20"/>
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageDownCommand"
+                              Background="Transparent" BorderThickness="0" Height="0" Opacity="0"/>
+                </Track.IncreaseRepeatButton>
+            </Track>
+        </Border>
+    </ControlTemplate>
+
+    <ControlTemplate x:Key="DarkHorizontalScrollBar" TargetType="ScrollBar">
+        <Border Background="#1E1E2E" Height="8" CornerRadius="4">
+            <Track x:Name="PART_Track" IsDirectionReversed="False" Margin="2,0">
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageLeftCommand"
+                              Background="Transparent" BorderThickness="0" Width="0" Opacity="0"/>
+                </Track.DecreaseRepeatButton>
+                <Track.Thumb>
+                    <Thumb Template="{StaticResource DarkScrollBarThumb}" MinWidth="20"/>
+                </Track.Thumb>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Command="ScrollBar.PageRightCommand"
+                              Background="Transparent" BorderThickness="0" Width="0" Opacity="0"/>
+                </Track.IncreaseRepeatButton>
+            </Track>
+        </Border>
+    </ControlTemplate>
+
     <Style TargetType="ScrollBar">
+        <Setter Property="Background" Value="#1E1E2E"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Vertical">
+                <Setter Property="Width" Value="8"/>
+                <Setter Property="MinWidth" Value="8"/>
+                <Setter Property="Template" Value="{StaticResource DarkVerticalScrollBar}"/>
+            </Trigger>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Height" Value="8"/>
+                <Setter Property="MinHeight" Value="8"/>
+                <Setter Property="Template" Value="{StaticResource DarkHorizontalScrollBar}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="ScrollViewer">
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Width" Value="8"/>
+        <Setter Property="BorderThickness" Value="0"/>
     </Style>
 
     <!-- ProgressBar Style -->

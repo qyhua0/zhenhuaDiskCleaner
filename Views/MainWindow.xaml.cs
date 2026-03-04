@@ -14,6 +14,7 @@ namespace ZhenhuaDiskCleaner.Views
     {
         private MainViewModel VM => (MainViewModel)DataContext;
 
+
         public MainWindow()
         {
             InitializeComponent();

@@ -5,108 +5,110 @@ namespace ZhenhuaDiskCleaner.Helpers
 {
     public static class TreemapAlgorithm
     {
-        public static List<TreemapNode> Build(FileNode root, Rect bounds, int maxDepth = 4)
+        public static List<TreemapNode> Build(FileNode root, Rect bounds)
         {
             var result = new List<TreemapNode>();
-            if (root.Size == 0 || bounds.Width < 2 || bounds.Height < 2) return result;
+            if (bounds.Width < 1 || bounds.Height < 1) return result;
 
-            // 直接对 root 的子节点做布局
-            var children = root.Children
-                .Where(c => c.Size > 0)
-                .OrderByDescending(c => c.Size)
-                .ToList();
+            var leaves = new List<FileNode>();
+            CollectLeaves(root, leaves);
+            if (leaves.Count == 0) return result;
 
-            Squarify(children, bounds, maxDepth, 0, result);
+            // 大小为0的文件赋予最小值1，保证都能显示
+            foreach (var f in leaves)
+                if (f.Size <= 0) f.Size = 1;
+
+            long total = leaves.Sum(f => f.Size);
+            leaves.Sort((a, b) => b.Size.CompareTo(a.Size));
+
+            Layout(leaves, 0, leaves.Count - 1, bounds, total, true, result);
             return result;
         }
 
-        private static void Squarify(List<FileNode> items, Rect bounds,
-            int maxDepth, int depth, List<TreemapNode> output)
+        private static void CollectLeaves(FileNode node, List<FileNode> leaves)
         {
-            if (items.Count == 0 || bounds.Width < 2 || bounds.Height < 2) return;
-
-            long total = items.Sum(i => i.Size);
-            if (total == 0) return;
-
-            var remaining = new List<FileNode>(items);
-            var cur = bounds;
-
-            while (remaining.Count > 0 && cur.Width >= 2 && cur.Height >= 2)
-            {
-                bool horiz = cur.Width >= cur.Height;
-                double shortSide = horiz ? cur.Height : cur.Width;
-                double longSide = horiz ? cur.Width : cur.Height;
-                double area = cur.Width * cur.Height;
-                long remTotal = remaining.Sum(r => r.Size);
-
-                // 找最优行
-                var row = new List<FileNode>();
-                foreach (var item in remaining)
-                {
-                    var candidate = new List<FileNode>(row) { item };
-                    if (row.Count == 0 || Worst(row, shortSide, area, remTotal) >= Worst(candidate, shortSide, area, remTotal))
-                        row.Add(item);
-                    else
-                        break;
-                }
-
-                long rowTotal = row.Sum(r => r.Size);
-                double rowThick = remTotal > 0 ? (double)rowTotal / remTotal * longSide : 0;
-
-                double pos = 0;
-                foreach (var item in row)
-                {
-                    double itemLen = rowTotal > 0 ? (double)item.Size / rowTotal * shortSide : 0;
-                    var itemBounds = horiz
-                        ? new Rect(cur.X + pos, cur.Y, itemLen, rowThick)
-                        : new Rect(cur.X, cur.Y + pos, rowThick, itemLen);
-
-                    // 最小可见尺寸过滤
-                    if (itemBounds.Width < 1 || itemBounds.Height < 1) { pos += itemLen; continue; }
-
-                    var node = new TreemapNode { FileNode = item, Bounds = itemBounds, Level = depth };
-                    output.Add(node);
-
-                    // 递归：目录继续细分
-                    if (depth < maxDepth - 1 && item.IsDirectory && item.Children.Count > 0
-                        && itemBounds.Width > 16 && itemBounds.Height > 16)
-                    {
-                        var inner = new Rect(
-                            itemBounds.X + 1, itemBounds.Y + 14,
-                            Math.Max(2, itemBounds.Width - 2),
-                            Math.Max(2, itemBounds.Height - 15));
-
-                        var subItems = item.Children
-                            .Where(c => c.Size > 0)
-                            .OrderByDescending(c => c.Size)
-                            .ToList();
-
-                        Squarify(subItems, inner, maxDepth, depth + 1, node.Children);
-                    }
-
-                    pos += itemLen;
-                    remaining.Remove(item);
-                }
-
-                // 收缩剩余空间
-                if (horiz)
-                    cur = new Rect(cur.X, cur.Y + rowThick, cur.Width, Math.Max(0, cur.Height - rowThick));
-                else
-                    cur = new Rect(cur.X + rowThick, cur.Y, Math.Max(0, cur.Width - rowThick), cur.Height);
-            }
+            if (!node.IsDirectory)
+            { leaves.Add(node); return; }
+            foreach (var c in node.Children)
+                CollectLeaves(c, leaves);
         }
 
-        private static double Worst(List<FileNode> row, double s, double totalArea, long total)
+        /// <summary>
+        /// 递归切片布局：
+        /// 每次按面积比例将当前矩形切分为两半，
+        /// 左/上半放前一组，右/下半放后一组，方向交替。
+        /// </summary>
+        private static void Layout(
+            List<FileNode> items, int lo, int hi,
+            Rect rect, long total,
+            bool splitHoriz,
+            List<TreemapNode> output)
         {
-            if (row.Count == 0) return double.MaxValue;
-            long rowSum = row.Sum(r => r.Size);
-            long maxS = row.Max(r => r.Size);
-            long minS = row.Min(r => r.Size);
-            double rowArea = (double)rowSum / total * totalArea;
-            double maxA = (double)maxS / total * totalArea;
-            double minA = (double)minS / total * totalArea;
-            if (rowArea == 0 || minA == 0) return double.MaxValue;
-            return Math.Max(s * s * maxA / (rowArea * rowArea), rowArea * rowArea / (s * s * minA));
+            if (lo > hi) return;
+            if (rect.Width < 0.5 || rect.Height < 0.5) return;
+
+            // 只剩一个节点，直接占满当前矩形
+            if (lo == hi)
+            {
+                output.Add(new TreemapNode
+                {
+                    FileNode = items[lo],
+                    Bounds = new Rect(
+                        Math.Round(rect.X, 1), Math.Round(rect.Y, 1),
+                        Math.Max(1, Math.Round(rect.Width, 1)),
+                        Math.Max(1, Math.Round(rect.Height, 1))),
+                    Level = 0
+                });
+                return;
+            }
+
+            // 找中间分割点：使左右两组面积之和尽量接近各占一半
+            int mid = FindMid(items, lo, hi, total);
+
+            long leftSum = Sum(items, lo, mid);
+            long rightSum = Sum(items, mid + 1, hi);
+            long bothSum = leftSum + rightSum;
+            if (bothSum == 0) return;
+
+            double ratio = (double)leftSum / bothSum;
+
+            Rect leftRect, rightRect;
+            if (splitHoriz)
+            {
+                double splitX = rect.X + rect.Width * ratio;
+                leftRect = new Rect(rect.X, rect.Y, rect.Width * ratio, rect.Height);
+                rightRect = new Rect(splitX, rect.Y, rect.Width * (1 - ratio), rect.Height);
+            }
+            else
+            {
+                double splitY = rect.Y + rect.Height * ratio;
+                leftRect = new Rect(rect.X, rect.Y, rect.Width, rect.Height * ratio);
+                rightRect = new Rect(rect.X, splitY, rect.Width, rect.Height * (1 - ratio));
+            }
+
+            // 交替方向递归
+            Layout(items, lo, mid, leftRect, leftSum, !splitHoriz, output);
+            Layout(items, mid + 1, hi, rightRect, rightSum, !splitHoriz, output);
+        }
+
+        // 找最优分割点，使两组面积尽量均衡
+        private static int FindMid(List<FileNode> items, int lo, int hi, long total)
+        {
+            long half = total / 2;
+            long acc = 0;
+            for (int i = lo; i < hi; i++)
+            {
+                acc += items[i].Size;
+                if (acc >= half) return i;
+            }
+            return hi - 1;
+        }
+
+        private static long Sum(List<FileNode> items, int lo, int hi)
+        {
+            long s = 0;
+            for (int i = lo; i <= hi; i++) s += items[i].Size;
+            return s;
         }
     }
 }

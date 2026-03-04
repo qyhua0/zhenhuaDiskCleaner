@@ -12,7 +12,7 @@ namespace ZhenhuaDiskCleaner.Services
             {".tiff",FileType.Image},{".raw",FileType.Image},{".heic",FileType.Image},{".tif",FileType.Image},
             {".mp4",FileType.Video},{".avi",FileType.Video},{".mkv",FileType.Video},{".mov",FileType.Video},
             {".wmv",FileType.Video},{".flv",FileType.Video},{".webm",FileType.Video},{".m4v",FileType.Video},
-            {".rmvb",FileType.Video},{".ts",FileType.Video},{".mpeg",FileType.Video},
+            {".rmvb",FileType.Video},{".mpeg",FileType.Video},
             {".mp3",FileType.Audio},{".wav",FileType.Audio},{".flac",FileType.Audio},{".aac",FileType.Audio},
             {".ogg",FileType.Audio},{".wma",FileType.Audio},{".m4a",FileType.Audio},{".opus",FileType.Audio},
             {".txt",FileType.Document},{".pdf",FileType.Document},{".doc",FileType.Document},

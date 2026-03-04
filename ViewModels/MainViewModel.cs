@@ -10,6 +10,9 @@ namespace ZhenhuaDiskCleaner.ViewModels
     public partial class MainViewModel : ObservableObject
     {
         private readonly DiskScannerService _scanner = new();
+
+        private readonly NtfsQuickScanner _quickScanner = new();
+
         private readonly FileOperationService _fileOps = new();
         private readonly FileWatcherService _watcher = new();
 
@@ -21,6 +24,9 @@ namespace ZhenhuaDiskCleaner.ViewModels
         [ObservableProperty] private FileNode? _highlightedNode;
         [ObservableProperty] private ScanProgress _scanProgress = new();
         [ObservableProperty] private bool _isScanning;
+        public bool CanScan => !IsScanning;
+        partial void OnIsScanningChanged(bool value) => OnPropertyChanged(nameof(CanScan));
+
         [ObservableProperty] private bool _hasScanResult;
         [ObservableProperty] private string _statusMessage = "请选择驱动器或目录开始扫描";
         [ObservableProperty] private System.Collections.ObjectModel.ObservableCollection<FileTypeStats> _fileTypeStats = new();
@@ -60,7 +66,38 @@ namespace ZhenhuaDiskCleaner.ViewModels
 
         [RelayCommand]
         private void CancelScan()
-        { _scanner.Cancel(); IsScanning = false; StatusMessage = "扫描已取消"; }
+        {
+            _scanner.Cancel();
+            _quickScanner.Cancel();
+            IsScanning = false;
+            StatusMessage = "扫描已取消";
+        }
+
+        [RelayCommand]
+        private async Task QuickScanAsync()
+        {
+            var path = !string.IsNullOrWhiteSpace(CustomPath) ? CustomPath : SelectedDrive?.Path;
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            // 快速扫描只支持整盘 NTFS，需管理员权限
+            var root = System.IO.Path.GetPathRoot(path);
+            if (string.IsNullOrEmpty(root))
+            { StatusMessage = "快速扫描需要选择完整的驱动器"; return; }
+
+            RootNode = null; HasScanResult = false;
+            FileListItems.Clear(); FileTypeStats.Clear();
+            ScanProgress = new ScanProgress(); IsScanning = true;
+            StatusMessage = "⚡ 快速扫描中（读取 MFT）...";
+
+            _quickScanner.ProgressChanged -= OnScanProgress;
+            _quickScanner.ScanCompleted -= OnScanCompleted;
+            _quickScanner.ErrorOccurred -= OnScanError;
+            _quickScanner.ProgressChanged += OnScanProgress;
+            _quickScanner.ScanCompleted += OnScanCompleted;
+            _quickScanner.ErrorOccurred += OnScanError;
+
+            await _quickScanner.ScanAsync(root);
+        }
 
         [RelayCommand]
         private void BrowseDirectory()
