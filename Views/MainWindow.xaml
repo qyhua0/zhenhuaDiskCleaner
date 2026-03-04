@@ -261,10 +261,11 @@
                                     </ListView.ContextMenu>
                                     <ListView.View>
                                         <GridView>
-                                            <GridViewColumn Width="22">
+                                            <GridViewColumn Width="30">
                                                 <GridViewColumn.CellTemplate>
                                                     <DataTemplate>
-                                                        <TextBlock Text="{Binding Converter={StaticResource FileTypeIcon}}" FontSize="12"/>
+                                                        <TextBlock Text="{Binding Converter={StaticResource FileTypeIcon}}" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                   
                                                     </DataTemplate>
                                                 </GridViewColumn.CellTemplate>
                                             </GridViewColumn>
@@ -300,7 +301,7 @@
                                             <GridViewColumn Header="完整路径" Width="350">
                                                 <GridViewColumn.CellTemplate>
                                                     <DataTemplate>
-                                                        <TextBlock Text="{Binding FullPath}" FontSize="11"
+                                                        <TextBlock Text="{Binding FullPath}" FontSize="12"
                                                                    TextTrimming="CharacterEllipsis"
                                                                    Foreground="{StaticResource TextSecondaryBrush}"/>
                                                     </DataTemplate>
@@ -469,26 +470,28 @@
                                 </StackPanel>
 
                                 <!-- Quick Actions -->
-                                <TextBlock Text="快速操作" FontSize="11" FontWeight="SemiBold"
+                                <TextBlock Text="快速操作" FontSize="11" FontWeight="SemiBold" 
+
                                            Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,8"/>
                                 <UniformGrid Columns="2" Margin="0,0,0,6">
-                                    <Button Content="📂 打开位置" Margin="0,0,3,3" Height="28" FontSize="11"
+                                    <Button Content="📂 打开位置" Margin="0,0,3,3" Height="36" FontSize="11"  
+
                                             Style="{StaticResource SecondaryButtonStyle}"
                                             Command="{Binding OpenInExplorerCommand}" CommandParameter="{Binding SelectedNode}"/>
-                                    <Button Content="📋 复制路径" Margin="3,0,0,3" Height="28" FontSize="11"
+                                    <Button Content="📋 复制路径" Margin="3,0,0,3" Height="36" FontSize="11"
                                             Style="{StaticResource SecondaryButtonStyle}"
                                             Command="{Binding CopyPathCommand}" CommandParameter="{Binding SelectedNode}"/>
-                                    <Button Content="💻 CMD" Margin="0,0,3,0" Height="28" FontSize="11"
+                                    <Button Content="💻 CMD" Margin="0,0,3,0" Height="36" FontSize="11"
                                             Style="{StaticResource SecondaryButtonStyle}"
                                             Command="{Binding OpenInCmdCommand}" CommandParameter="{Binding SelectedNode}"/>
-                                    <Button Content="🗑 回收站" Margin="3,0,0,0" Height="28" FontSize="11"
+                                    <Button Content="🗑 回收站" Margin="3,0,0,0" Height="36" FontSize="11"
                                             Style="{StaticResource DangerButtonStyle}"
                                             Command="{Binding DeleteToRecycleBinCommand}" CommandParameter="{Binding SelectedNode}"/>
                                 </UniformGrid>
-                                <Button Content="💀 永久删除" HorizontalAlignment="Stretch" Height="28" FontSize="11"
+                                <Button Content="💀 永久删除" HorizontalAlignment="Stretch" Height="36" FontSize="11"
                                         Margin="0,4,0,4" Style="{StaticResource DangerButtonStyle}"
                                         Command="{Binding DeletePermanentlyCommand}" CommandParameter="{Binding SelectedNode}"/>
-                                <Button Content="🧹 清空文件夹内容" HorizontalAlignment="Stretch" Height="28" FontSize="11"
+                                <Button Content="🧹 清空文件夹内容" HorizontalAlignment="Stretch" Height="36" FontSize="11"
                                         Margin="0,0,0,12" Style="{StaticResource DangerButtonStyle}"
                                         Command="{Binding ClearDirectoryCommand}" CommandParameter="{Binding SelectedNode}"
                                         Visibility="{Binding SelectedNode.IsDirectory, Converter={StaticResource BoolToVis}}"/>
@@ -497,7 +500,7 @@
                                 <StackPanel Visibility="{Binding SelectedNode.IsDirectory, Converter={StaticResource InvBoolToVis}}">
                                     <TextBlock Text="文件哈希" FontSize="11" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,8"/>
-                                    <Button Content="🔑 计算 MD5/SHA1/SHA256/SHA512" Height="28" FontSize="11"
+                                    <Button Content="🔑 计算 MD5/SHA1/SHA256/SHA512" Height="36" FontSize="11"
                                             HorizontalAlignment="Stretch" Style="{StaticResource SecondaryButtonStyle}"
                                             Command="{Binding ComputeHashCommand}" CommandParameter="{Binding SelectedNode}"
                                             IsEnabled="{Binding IsComputingHash, Converter={StaticResource BoolNeg}}"

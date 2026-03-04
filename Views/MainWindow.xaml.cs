@@ -20,8 +20,17 @@ namespace ZhenhuaDiskCleaner.Views
             DataContext = new MainViewModel();
             TreemapView.NodeClicked += node => { VM.OnTreemapNodeClicked(node); SyncTree(node); };
             TreemapView.NodeHovered += node => VM.OnTreemapNodeHovered(node);
+
+
             VM.PropertyChanged += (_, e) => {
                 if (e.PropertyName == nameof(VM.FileTypeStats)) DrawPieChart();
+                // TreeMap 反向联动：ViewModel 选中变化时同步到 TreeMap 和左侧树
+                if (e.PropertyName == nameof(VM.SelectedNode) && VM.SelectedNode != null)
+                {
+                    TreemapView.SelectedNode = VM.SelectedNode;
+                    TreemapView.HighlightedNode = VM.SelectedNode;
+                    SyncTree(VM.SelectedNode);
+                }
             };
         }
 

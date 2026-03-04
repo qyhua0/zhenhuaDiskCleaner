@@ -1,28 +1,32 @@
 using System.Windows;
-using System.Collections.Generic;
 using ZhenhuaDiskCleaner.Models;
 
 namespace ZhenhuaDiskCleaner.Helpers
 {
     public static class TreemapAlgorithm
     {
-        public static List<TreemapNode> Build(FileNode root, Rect bounds, int maxDepth = 3)
+        public static List<TreemapNode> Build(FileNode root, Rect bounds, int maxDepth = 4)
         {
             var result = new List<TreemapNode>();
             if (root.Size == 0 || bounds.Width < 2 || bounds.Height < 2) return result;
-            var children = new List<FileNode>(root.Children);
-            children.Sort((a, b) => b.Size.CompareTo(a.Size));
-            result.AddRange(Squarify(children, bounds, maxDepth, 0));
+
+            // 直接对 root 的子节点做布局
+            var children = root.Children
+                .Where(c => c.Size > 0)
+                .OrderByDescending(c => c.Size)
+                .ToList();
+
+            Squarify(children, bounds, maxDepth, 0, result);
             return result;
         }
 
-        private static List<TreemapNode> Squarify(List<FileNode> items, Rect bounds, int maxDepth, int depth)
+        private static void Squarify(List<FileNode> items, Rect bounds,
+            int maxDepth, int depth, List<TreemapNode> output)
         {
-            var result = new List<TreemapNode>();
-            if (items.Count == 0 || bounds.Width < 2 || bounds.Height < 2) return result;
+            if (items.Count == 0 || bounds.Width < 2 || bounds.Height < 2) return;
 
-            long total = 0; foreach (var i in items) total += i.Size;
-            if (total == 0) return result;
+            long total = items.Sum(i => i.Size);
+            if (total == 0) return;
 
             var remaining = new List<FileNode>(items);
             var cur = bounds;
@@ -31,66 +35,78 @@ namespace ZhenhuaDiskCleaner.Helpers
             {
                 bool horiz = cur.Width >= cur.Height;
                 double shortSide = horiz ? cur.Height : cur.Width;
-                double longSide  = horiz ? cur.Width  : cur.Height;
+                double longSide = horiz ? cur.Width : cur.Height;
                 double area = cur.Width * cur.Height;
-                long remTotal = 0; foreach (var r in remaining) remTotal += r.Size;
+                long remTotal = remaining.Sum(r => r.Size);
 
+                // 找最优行
                 var row = new List<FileNode>();
                 foreach (var item in remaining)
                 {
-                    var cand = new List<FileNode>(row) { item };
-                    if (row.Count == 0 || Worst(row, shortSide, area, remTotal) >= Worst(cand, shortSide, area, remTotal))
+                    var candidate = new List<FileNode>(row) { item };
+                    if (row.Count == 0 || Worst(row, shortSide, area, remTotal) >= Worst(candidate, shortSide, area, remTotal))
                         row.Add(item);
-                    else break;
+                    else
+                        break;
                 }
 
-                long rowTotal = 0; foreach (var r in row) rowTotal += r.Size;
-                double rowLen = (double)rowTotal / remTotal * longSide;
+                long rowTotal = row.Sum(r => r.Size);
+                double rowThick = remTotal > 0 ? (double)rowTotal / remTotal * longSide : 0;
 
                 double pos = 0;
                 foreach (var item in row)
                 {
                     double itemLen = rowTotal > 0 ? (double)item.Size / rowTotal * shortSide : 0;
-                    Rect itemBounds = horiz
-                        ? new Rect(cur.X + pos, cur.Y, itemLen, rowLen)
-                        : new Rect(cur.X, cur.Y + pos, rowLen, itemLen);
+                    var itemBounds = horiz
+                        ? new Rect(cur.X + pos, cur.Y, itemLen, rowThick)
+                        : new Rect(cur.X, cur.Y + pos, rowThick, itemLen);
+
+                    // 最小可见尺寸过滤
+                    if (itemBounds.Width < 1 || itemBounds.Height < 1) { pos += itemLen; continue; }
 
                     var node = new TreemapNode { FileNode = item, Bounds = itemBounds, Level = depth };
-                    result.Add(node);
+                    output.Add(node);
 
+                    // 递归：目录继续细分
                     if (depth < maxDepth - 1 && item.IsDirectory && item.Children.Count > 0
-                        && itemBounds.Width > 20 && itemBounds.Height > 20)
+                        && itemBounds.Width > 16 && itemBounds.Height > 16)
                     {
-                        var cb = new Rect(itemBounds.X + 1, itemBounds.Y + 14,
-                            System.Math.Max(2, itemBounds.Width - 2),
-                            System.Math.Max(2, itemBounds.Height - 15));
-                        var sub = new List<FileNode>(item.Children);
-                        sub.Sort((a, b) => b.Size.CompareTo(a.Size));
-                        node.Children.AddRange(Squarify(sub, cb, maxDepth, depth + 1));
+                        var inner = new Rect(
+                            itemBounds.X + 1, itemBounds.Y + 14,
+                            Math.Max(2, itemBounds.Width - 2),
+                            Math.Max(2, itemBounds.Height - 15));
+
+                        var subItems = item.Children
+                            .Where(c => c.Size > 0)
+                            .OrderByDescending(c => c.Size)
+                            .ToList();
+
+                        Squarify(subItems, inner, maxDepth, depth + 1, node.Children);
                     }
+
                     pos += itemLen;
                     remaining.Remove(item);
                 }
 
+                // 收缩剩余空间
                 if (horiz)
-                    cur = new Rect(cur.X, cur.Y + rowLen, cur.Width, System.Math.Max(0, cur.Height - rowLen));
+                    cur = new Rect(cur.X, cur.Y + rowThick, cur.Width, Math.Max(0, cur.Height - rowThick));
                 else
-                    cur = new Rect(cur.X + rowLen, cur.Y, System.Math.Max(0, cur.Width - rowLen), cur.Height);
+                    cur = new Rect(cur.X + rowThick, cur.Y, Math.Max(0, cur.Width - rowThick), cur.Height);
             }
-            return result;
         }
 
         private static double Worst(List<FileNode> row, double s, double totalArea, long total)
         {
             if (row.Count == 0) return double.MaxValue;
-            long rowSum = 0; long maxS = 0; long minS = long.MaxValue;
-            foreach (var r in row) { rowSum += r.Size; if (r.Size > maxS) maxS = r.Size; if (r.Size < minS) minS = r.Size; }
+            long rowSum = row.Sum(r => r.Size);
+            long maxS = row.Max(r => r.Size);
+            long minS = row.Min(r => r.Size);
             double rowArea = (double)rowSum / total * totalArea;
             double maxA = (double)maxS / total * totalArea;
             double minA = (double)minS / total * totalArea;
-            double s2 = s * s, ra2 = rowArea * rowArea;
-            if (ra2 == 0 || minA == 0) return double.MaxValue;
-            return System.Math.Max(s2 * maxA / ra2, ra2 / (s2 * minA));
+            if (rowArea == 0 || minA == 0) return double.MaxValue;
+            return Math.Max(s * s * maxA / (rowArea * rowArea), rowArea * rowArea / (s * s * minA));
         }
     }
 }
