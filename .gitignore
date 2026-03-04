@@ -1,0 +1,119 @@
+# ==================== Visual Studio ====================
+# 用户特定文件
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vs/
+*.vscode/
+
+# 构建输出
+[Bb]in/
+[Oo]bj/
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+*.manifest
+*.res
+*.cache
+
+# Visual Studio 缓存
+*.aps
+*.pch
+*.vspscc
+*.vssscc
+*_i.c
+*_p.c
+*.log
+
+# ==================== .NET Core / .NET 5+ ====================
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+
+# ==================== NuGet ====================
+packages/
+*.nuget
+NuGet.Config
+!NuGet.Config.example
+
+# ==================== Rider / JetBrains ====================
+.idea/
+*.sln.iml
+
+# ==================== 测试 ====================
+[Tt]est[Rr]esults/
+*.trx
+coverage/
+*.coverage
+*.coveragexml
+
+# ==================== 日志和临时文件 ====================
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+Thumbs.db
+Desktop.ini
+
+# ==================== WPF 特定 ====================
+*.xaml.cs.user
+App.config.transform
+Web.config.transform
+
+# ==================== 编译中间文件 ====================
+*._generated.cs
+*.g.cs
+*.g.i.cs
+Generated/
+
+# ==================== 发布文件 ====================
+Publish/
+publish/
+*.ClickOnce
+*.application
+
+# ==================== 调试和诊断 ====================
+*.dump
+*.dmp
+*.diag
+*.trace
+
+# ==================== 本地配置文件（敏感信息）====================
+appsettings.local.json
+appsettings.*.local.json
+*.local.settings.json
+secrets.json
+*.pfx
+*.p12
+
+# ==================== 工具特定 ====================
+# Resharper
+_ReSharper*/
+*.resharper
+*.sln.DotSettings.user
+
+# CodeRush
+*.crproj
+
+# ==================== 其他 ====================
+# 忽略所有 .git 以外的隐藏文件
+.*
+!.gitignore
+!.gitattributes
+
+# 保留目录结构但忽略内容
+[Bb]in/**/*
+[Oo]bj/**/*
+!bin/.gitkeep
+!obj/.gitkeep
