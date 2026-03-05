@@ -38,9 +38,9 @@
                 <Grid>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0">
                         <TextBlock Text="⚡" FontSize="18" Margin="0,0,8,0"/>
-                        <TextBlock Text="振华磁盘清理工具" FontSize="15" FontWeight="SemiBold"
+                        <TextBlock Text="振华磁盘清理工具 " FontSize="15" FontWeight="SemiBold"
                                    Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <TextBlock Text=" v1.0" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                        <TextBlock Text=" v1.1 www.bloghua.com" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
                                    VerticalAlignment="Bottom" Margin="0,0,0,2"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
@@ -95,7 +95,7 @@
                         <!-- 驱动器下拉 -->
                         <ComboBox Grid.Column="1" ItemsSource="{Binding Drives}"
               SelectedItem="{Binding SelectedDrive}" DisplayMemberPath="DisplayName"
-              Height="32" IsEnabled="{Binding CanScan}"/>
+              Height="32" IsEnabled="{Binding CanScan}" SelectionChanged="DriveComboBox_SelectionChanged" />
 
                         <!-- 自定义路径 -->
                         <TextBox Grid.Column="3" Text="{Binding CustomPath, UpdateSourceTrigger=PropertyChanged}"

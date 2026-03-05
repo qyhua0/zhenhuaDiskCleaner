@@ -289,5 +289,11 @@ namespace ZhenhuaDiskCleaner.Views
             geo.Freeze();
             return geo;
         }
+
+        private void DriveComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (e.AddedItems.Count > 0)
+                VM.CustomPath = string.Empty;
+        }
     }
 }
