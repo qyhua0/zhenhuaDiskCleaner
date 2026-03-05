@@ -9,7 +9,11 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>images\ZhenhuaDiskCleaner.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Content Include="images\ZhenhuaDiskCleaner.ico" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
   </ItemGroup>
