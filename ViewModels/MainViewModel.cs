@@ -245,10 +245,25 @@ namespace ZhenhuaDiskCleaner.ViewModels
             finally { IsComputingHash = false; }
         }
 
+ 
         private void Remove(FileNode node)
         {
-            node.Parent?.Children.Remove(node); FileListItems.Remove(node);
+            node.Parent?.Children.Remove(node);
+            FileListItems.Remove(node);
             if (SelectedNode == node) SelectedNode = null;
+
+            // 更新父目录及祖先的大小
+            var parent = node.Parent;
+            while (parent != null)
+            {
+                parent.Size -= node.Size;
+                parent = parent.Parent;
+            }
+
+            // 通知 Treemap 重建
+            var root = RootNode;
+            RootNode = null;
+            RootNode = root;
         }
 
         public void OnTreemapNodeClicked(FileNode node) => SelectedNode = node;
