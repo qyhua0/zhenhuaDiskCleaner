@@ -95,7 +95,10 @@
                             <!-- 12: 分隔间距 -->
                             <ColumnDefinition Width="Auto"/>
                             <!-- 13: 🧹 系统盘清理 -->
-
+                            <ColumnDefinition Width="8"/>
+                            <!-- 14: 间距 -->
+                            <ColumnDefinition Width="Auto"/>
+                            <!-- 15: 📁 个人资料迁移 -->
 
 
 
@@ -158,7 +161,7 @@
                         <Border Grid.Column="11" Width="1" Height="22" VerticalAlignment="Center"
                                 Background="{StaticResource BorderBrush}"/>
 
-                        <!-- 系统盘清理（替换原一键清理） -->
+                        <!-- 系统盘清理 -->
                         <Button Grid.Column="13" Height="32" Padding="12,0"
                                  Style="{StaticResource PrimaryButtonStyle}"
                                 ToolTip="打开系统盘清理窗口，扫描并清理 C 盘垃圾文件"
@@ -166,6 +169,17 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="🧹" Margin="0,0,4,0"/>
                                 <TextBlock Text="系统盘清理"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- 个人资料迁移 -->
+                        <Button Grid.Column="15" Height="32" Padding="12,0"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="将桌面、文档、下载等用户文件夹迁移到其他分区"
+                                Click="OpenMigrator_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="📁" Margin="0,0,4,0"/>
+                                <TextBlock Text="资料迁移"/>
                             </StackPanel>
                         </Button>
 

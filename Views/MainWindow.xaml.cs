@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using ZhenhuaDiskCleaner.CleanerModule.Views;
+using ZhenhuaDiskCleaner.MigratorModule.Views;
 using ZhenhuaDiskCleaner.Models;
 using ZhenhuaDiskCleaner.ViewModels;
 using IoPath = System.IO.Path;
@@ -302,5 +303,13 @@ namespace ZhenhuaDiskCleaner.Views
             var win = new CleanerWindow { Owner = this };
             win.Show();  // 非模态，不阻塞主窗口
         }
+
+        /// <summary>打开个人资料迁移窗口</summary>
+        private void OpenMigrator_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new MigratorWindow { Owner = this };
+            win.Show();
+        }
+
     }
 }
