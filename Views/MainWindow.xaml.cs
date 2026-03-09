@@ -311,5 +311,217 @@ namespace ZhenhuaDiskCleaner.Views
             win.Show();
         }
 
+
+        /// <summary>关于对话框</summary>
+        private void About_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new Window
+            {
+                Owner = this,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                WindowStyle = WindowStyle.None,
+                AllowsTransparency = true,
+                ResizeMode = ResizeMode.NoResize,
+                Width = 400,
+                Height = 320,
+                Background = System.Windows.Media.Brushes.Transparent,
+            };
+
+            // 整体卡片
+            var card = new Border
+            {
+                CornerRadius = new CornerRadius(12),
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x25, 0x25, 0x35)),
+                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3A, 0x3A, 0x52)),
+                BorderThickness = new Thickness(1),
+            };
+
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
+
+            // ── 顶部色带 ──
+            var header = new Border
+            {
+                CornerRadius = new CornerRadius(12, 12, 0, 0),
+                Padding = new Thickness(24, 20, 24, 20),
+                Background = new LinearGradientBrush(
+                    System.Windows.Media.Color.FromRgb(0x6C, 0x63, 0xFF),
+                    System.Windows.Media.Color.FromRgb(0x4A, 0x44, 0xBB),
+                    new System.Windows.Point(0, 0), new System.Windows.Point(1, 1)),
+            };
+            var headerStack = new StackPanel { Orientation = Orientation.Horizontal };
+            var iconBorder = new Border
+            {
+                Width = 44,
+                Height = 44,
+                CornerRadius = new CornerRadius(10),
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(60, 255, 255, 255)),
+                Margin = new Thickness(0, 0, 14, 0),
+            };
+            iconBorder.Child = new TextBlock
+            {
+                Text = "⚡",
+                FontSize = 22,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var titleBlock = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            titleBlock.Children.Add(new TextBlock
+            {
+                Text = "振华磁盘清理工具",
+                FontSize = 16,
+                FontWeight = FontWeights.Bold,
+                Foreground = System.Windows.Media.Brushes.White,
+            });
+            titleBlock.Children.Add(new TextBlock
+            {
+                Text = "ZhenHua Disk Cleaner  v1.3",
+                FontSize = 11,
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromArgb(180, 255, 255, 255)),
+                Margin = new Thickness(0, 3, 0, 0),
+            });
+            headerStack.Children.Add(iconBorder);
+            headerStack.Children.Add(titleBlock);
+            header.Child = headerStack;
+            Grid.SetRow(header, 0);
+
+            // ── 内容区 ──
+            var accent = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x6C, 0x63, 0xFF));
+            var textSec = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xA0, 0xA0, 0xB8));
+            var textPri = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE8, 0xE8, 0xF0));
+
+            var body = new StackPanel { Margin = new Thickness(24, 18, 24, 8) };
+
+            InfoRow(body, "🌐", "官方网站", "https://diskcleaner.bloghua.com", accent, textSec, textPri, dlg);
+            InfoRow(body, "📧", "联系邮箱", "qyhua0@hotmail.com", accent, textSec, textPri, dlg);
+            InfoRow(body, "📝", "开源协议", "GPL-3.0 license", accent, textSec, textPri, dlg);
+            InfoRow(body, "🛡", "系统要求", "Windows 10/11  ·  .NET 8", accent, textSec, textPri, dlg);
+
+            // 版权
+            body.Children.Add(new TextBlock
+            {
+                Text = "© 2026 https://www.bloghua.com  保留所有权利",
+                FontSize = 10,
+                Foreground = textSec,
+                Margin = new Thickness(0, 14, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Center,
+            });
+            Grid.SetRow(body, 1);
+
+            // ── 底部关闭按钮 ──
+            var footer = new Border
+            {
+                Padding = new Thickness(24, 10, 24, 16),
+                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3A, 0x3A, 0x52)),
+                BorderThickness = new Thickness(0, 1, 0, 0),
+            };
+            var closeBtn = new Button
+            {
+                Content = "关闭",
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Width = 80,
+                Height = 30,
+                FontSize = 12,
+                Foreground = System.Windows.Media.Brushes.White,
+                Background = accent,
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            closeBtn.Click += (_, _) => dlg.Close();
+            footer.Child = closeBtn;
+            Grid.SetRow(footer, 2);
+
+            root.Children.Add(header);
+            root.Children.Add(body);
+            root.Children.Add(footer);
+            card.Child = root;
+            dlg.Content = card;
+
+            // 点击卡片外区域关闭
+            dlg.MouseLeftButtonDown += (_, ev) =>
+            {
+                if (ev.Source == dlg) dlg.Close();
+                else dlg.DragMove();
+            };
+
+            dlg.ShowDialog();
+        }
+
+
+
+        private static void InfoRow(StackPanel parent,
+            string icon, string label, string value,
+            System.Windows.Media.Brush accent,
+            System.Windows.Media.Brush textSec,
+            System.Windows.Media.Brush textPri,
+            Window owner)
+        {
+            bool isUrl = value.StartsWith("http");
+            bool isEmail = value.Contains('@');
+
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var ico = new TextBlock
+            {
+                Text = icon,
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var lbl = new TextBlock
+            {
+                Text = label,
+                FontSize = 12,
+                Foreground = textSec,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var val = new TextBlock
+            {
+                Text = value,
+                FontSize = 12,
+                Foreground = (isUrl || isEmail) ? accent : textPri,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextDecorations = (isUrl || isEmail) ? TextDecorations.Underline : null,
+                Cursor = (isUrl || isEmail)
+                    ? System.Windows.Input.Cursors.Hand
+                    : System.Windows.Input.Cursors.Arrow,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+
+            if (isUrl)
+                val.MouseLeftButtonUp += (_, _) =>
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo(value) { UseShellExecute = true });
+                    }
+                    catch { }
+                };
+            else if (isEmail)
+                val.MouseLeftButtonUp += (_, _) =>
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start(
+                        new System.Diagnostics.ProcessStartInfo("mailto:" + value) { UseShellExecute = true });
+                    }
+                    catch { }
+                };
+
+            Grid.SetColumn(ico, 0);
+            Grid.SetColumn(lbl, 1);
+            Grid.SetColumn(val, 2);
+            row.Children.Add(ico);
+            row.Children.Add(lbl);
+            row.Children.Add(val);
+            parent.Children.Add(row);
+        }
+
+
     }
 }
