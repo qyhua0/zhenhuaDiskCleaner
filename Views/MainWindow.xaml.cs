@@ -3,10 +3,11 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using ZhenhuaDiskCleaner.CleanerModule.Views;
 using ZhenhuaDiskCleaner.Models;
 using ZhenhuaDiskCleaner.ViewModels;
-using WpfColor = System.Windows.Media.Color;
 using IoPath = System.IO.Path;
+using WpfColor = System.Windows.Media.Color;
 
 namespace ZhenhuaDiskCleaner.Views
 {
@@ -294,6 +295,12 @@ namespace ZhenhuaDiskCleaner.Views
         {
             if (e.AddedItems.Count > 0)
                 VM.CustomPath = string.Empty;
+        }
+
+        private void OpenCleaner_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new CleanerWindow { Owner = this };
+            win.Show();  // 非模态，不阻塞主窗口
         }
     }
 }

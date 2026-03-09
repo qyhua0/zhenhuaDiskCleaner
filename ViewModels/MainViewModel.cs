@@ -35,6 +35,13 @@ namespace ZhenhuaDiskCleaner.ViewModels
         [ObservableProperty] private HashResult? _hashResult;
         [ObservableProperty] private bool _isComputingHash;
 
+
+        private readonly SystemCleanerService _cleaner = new();
+        [ObservableProperty] private bool _isCleaning;
+        [ObservableProperty] private string _cleanStatus = string.Empty;
+        [ObservableProperty] private bool _hasCleanResult;
+        [ObservableProperty] private string _cleanResultText = string.Empty;
+
         public MainViewModel()
         {
             LoadDrives();
@@ -268,5 +275,44 @@ namespace ZhenhuaDiskCleaner.ViewModels
 
         public void OnTreemapNodeClicked(FileNode node) => SelectedNode = node;
         public void OnTreemapNodeHovered(FileNode node) => HighlightedNode = node;
+
+
+
+        [RelayCommand]
+        private async Task OneKeyCleanAsync()
+        {
+            if (IsCleaning) return;
+            var result = System.Windows.MessageBox.Show(
+                "一键清理将执行以下操作：\n\n" +
+                "✓ 清理临时文件、系统缓存\n" +
+                "✓ 清理Windows更新残留\n" +
+                "✓ 清理错误报告、崩溃转储\n" +
+                "✓ 清理回收站\n" +
+                "✓ 关闭休眠（删除hiberfil.sys）\n\n" +
+                "不会删除任何用户数据和已安装软件。\n继续？",
+                "一键清理确认", System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Question);
+            if (result != System.Windows.MessageBoxResult.Yes) return;
+
+            IsCleaning = true;
+            HasCleanResult = false;
+            CleanStatus = "准备清理...";
+
+            _cleaner.ProgressChanged += msg =>
+                System.Windows.Application.Current?.Dispatcher.InvokeAsync(
+                    () => CleanStatus = msg);
+
+            _cleaner.Completed += bytes =>
+                System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+                {
+                    IsCleaning = false;
+                    HasCleanResult = true;
+                    CleanResultText = $"清理完成！共释放 {FileNode.FormatSize(bytes)}";
+                    CleanStatus = CleanResultText;
+                    StatusMessage = CleanResultText;
+                });
+
+            await _cleaner.CleanAsync();
+        }
     }
 }

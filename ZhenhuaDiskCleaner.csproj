@@ -12,7 +12,13 @@
     <ApplicationIcon>images\ZhenhuaDiskCleaner.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <None Remove="CleanerModule\Resources\rules.json" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="images\ZhenhuaDiskCleaner.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="CleanerModule\Resources\rules.json" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />

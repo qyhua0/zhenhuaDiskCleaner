@@ -86,6 +86,19 @@
                             <!-- 8: 间距 -->
                             <ColumnDefinition Width="Auto"/>
                             <!-- 9: 刷新按钮 -->
+
+                            <ColumnDefinition Width="12"/>
+                            <!-- 10: 分隔间距 -->
+                            <ColumnDefinition Width="1"/>
+                            <!-- 11: 竖分隔线 -->
+                            <ColumnDefinition Width="12"/>
+                            <!-- 12: 分隔间距 -->
+                            <ColumnDefinition Width="Auto"/>
+                            <!-- 13: 🧹 系统盘清理 -->
+
+
+
+
                         </Grid.ColumnDefinitions>
 
                         <!-- 驱动器标签 -->
@@ -140,6 +153,23 @@
             Command="{Binding RefreshDrivesCommand}" Grid.ColumnSpan="2" Margin="4,0,0,0">
                             <TextBlock Text="🔄"/>
                         </Button>
+
+                        <!-- 竖分隔线 -->
+                        <Border Grid.Column="11" Width="1" Height="22" VerticalAlignment="Center"
+                                Background="{StaticResource BorderBrush}"/>
+
+                        <!-- 系统盘清理（替换原一键清理） -->
+                        <Button Grid.Column="13" Height="32" Padding="12,0"
+                                 Style="{StaticResource PrimaryButtonStyle}"
+                                ToolTip="打开系统盘清理窗口，扫描并清理 C 盘垃圾文件"
+                                Click="OpenCleaner_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="🧹" Margin="0,0,4,0"/>
+                                <TextBlock Text="系统盘清理"/>
+                            </StackPanel>
+                        </Button>
+
+
                     </Grid>
 
                     <!-- Progress Row -->

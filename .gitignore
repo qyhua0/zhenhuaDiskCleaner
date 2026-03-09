@@ -117,3 +117,4 @@ _ReSharper*/
 [Oo]bj/**/*
 !bin/.gitkeep
 !obj/.gitkeep
+/CleanerModule/Resources/rules.json
