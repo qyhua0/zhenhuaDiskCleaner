@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/平台-Windows%2010%2F11-blue?style=flat-square)](https://www.microsoft.com/windows)
 [![Framework](https://img.shields.io/badge/.NET-8.0-purple?style=flat-square)](https://dotnet.microsoft.com)
 [![License](https://img.shields.io/badge/协议-GPL-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/版本-v1.3-orange?style=flat-square)](https://diskcleaner.bloghua.com)
+[![Version](https://img.shields.io/badge/版本-v1.5-orange?style=flat-square)](https://diskcleaner.bloghua.com)
 
 🌐 官网：[diskcleaner.bloghua.com](https://diskcleaner.bloghua.com)　　📧 邮箱：qyhua0@hotmail.com
 

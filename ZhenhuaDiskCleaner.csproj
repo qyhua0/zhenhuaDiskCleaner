@@ -11,7 +11,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>images\ZhenhuaDiskCleaner.ico</ApplicationIcon>
     <Authors>黄振华</Authors>
-    <Version>1.3</Version>
+    <Version>1.5</Version>
     <PackageProjectUrl>https://diskcleaner.bloghua.com</PackageProjectUrl>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>

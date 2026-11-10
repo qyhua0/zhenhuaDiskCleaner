@@ -4,6 +4,7 @@
         xmlns:conv="clr-namespace:ZhenhuaDiskCleaner.Converters"
         xmlns:ctrl="clr-namespace:ZhenhuaDiskCleaner.Controls"
         xmlns:models="clr-namespace:ZhenhuaDiskCleaner.Models"
+        xmlns:helpers="clr-namespace:ZhenhuaDiskCleaner.Helpers"
         Title="振华磁盘清理工具" Height="800" Width="1300"
         MinWidth="1000" MinHeight="600"
         Background="{StaticResource BackgroundDarkBrush}"
@@ -40,8 +41,10 @@
                         <TextBlock Text="⚡" FontSize="18" Margin="0,0,8,0"/>
                         <TextBlock Text="振华磁盘清理工具 " FontSize="15" FontWeight="SemiBold"
                                    Foreground="{StaticResource TextPrimaryBrush}"/>
-                        <TextBlock Text=" v1.3 www.bloghua.com" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
-                                   VerticalAlignment="Bottom" Margin="0,0,0,2"/>
+                        <!-- 版本号和官网从程序集 / AppInfo 读，csproj 升版后不会再挂着旧号 -->
+                        <TextBlock Text="{x:Static helpers:AppInfo.TitleSuffix}" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   VerticalAlignment="Bottom" Margin="4,0,0,2"/>
                     </StackPanel>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                                 VerticalAlignment="Center" Margin="0,0,4,0">

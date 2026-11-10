@@ -81,14 +81,17 @@ namespace ZhenhuaDiskCleaner.CleanerModule.Services
             bool toRecycleBin = true)
         {
             _cts?.Cancel();
+            _cts?.Dispose();
             _cts = new CancellationTokenSource();
             var token = _cts.Token;
 
-            // 收集所有待删除文件
+            // 收集所有待删除文件。
+            // 注意这里不能加 .Where(File.Exists)：勾几千个文件时，这几千次
+            // stat 是在 UI 线程上跑的（await Z前），窗口直接“未响应”。
+            // 存在性检查已下到底层循环里。
             var toDelete = results
                 .Where(r => r.IsChecked)
                 .SelectMany(r => r.Files)
-                .Where(File.Exists)
                 .ToList();
 
             int total = toDelete.Count;
@@ -103,6 +106,9 @@ namespace ZhenhuaDiskCleaner.CleanerModule.Services
                 foreach (var filePath in toDelete)
                 {
                     if (token.IsCancellationRequested) break;
+
+                    // 文件可能在扫描之后、删除之前就被程序自己删掉了
+                    if (!File.Exists(filePath)) { done++; continue; }
 
                     try
                     {
@@ -171,7 +177,11 @@ namespace ZhenhuaDiskCleaner.CleanerModule.Services
                     }
 
                     done++;
-                    ProgressChanged?.Invoke(done, total);
+
+                    // 进度限流：每个文件都往外报的话，删 5 万个文件就是
+                    // 5 万次 Dispatcher 投递，UI 队列被刷满，反而更慢。
+                    if (done % 32 == 0 || done == total)
+                        ProgressChanged?.Invoke(done, total);
                 }
             }, token);
 
@@ -179,7 +189,7 @@ namespace ZhenhuaDiskCleaner.CleanerModule.Services
         }
 
         /// <summary>取消正在进行的清理</summary>
-        public void Cancel() => _cts?.Cancel();
+        public void Cancel() { try { _cts?.Cancel(); } catch (ObjectDisposedException) { } }
 
         /// <summary>
         /// 验证 MoveFileEx 是否真正将路径写入了注册表

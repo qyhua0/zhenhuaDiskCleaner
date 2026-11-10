@@ -114,8 +114,13 @@ namespace ZhenhuaDiskCleaner.Services
         {
             if (IsScanning) return;
             IsScanning = true;
+            _cts?.Cancel();
+            _cts?.Dispose();
             _cts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(externalCt);
             _sw.Restart();
+            // 必须归零：不重置的话第二次扫描的进度会从上一轮的数字接着涨，
+            // 下面的 % 10000 节流也会错位（只有刚好整除才上报）
+            _totalFiles = 0;
 
             try
             {
@@ -129,8 +134,17 @@ namespace ZhenhuaDiskCleaner.Services
                 FileNode? root = null;
                 await Task.Run(() =>
                 {
+                    // 线程池线程的优先级用完必须还原：以前设了 AboveNormal 永不改回，
+                    // 这条线程事后被其他工作复串时会一直压着普通任务
                     Thread.CurrentThread.Priority = ThreadPriority.AboveNormal;
-                    root = ScanViaMft(volumePath, driveLetter + "\\", progress, token);
+                    try
+                    {
+                        root = ScanViaMft(volumePath, driveLetter + "\\", progress, token);
+                    }
+                    finally
+                    {
+                        Thread.CurrentThread.Priority = ThreadPriority.Normal;
+                    }
                 }, token);
 
                 if (root != null && !token.IsCancellationRequested)
@@ -201,6 +215,9 @@ namespace ZhenhuaDiskCleaner.Services
                     HighUsn = journalData.NextUsn
                 };
 
+                // USN_RECORD_V2 的固定头长度；Marshal 前必须确认剩下这么多字节
+                int minRecordLen = Marshal.SizeOf<USN_RECORD_V2>();
+
                 while (!ct.IsCancellationRequested)
                 {
                     if (!DeviceIoControl(hVol, FSCTL_ENUM_USN_DATA,
@@ -218,10 +235,24 @@ namespace ZhenhuaDiskCleaner.Services
 
                     while (ptr.ToInt64() < end.ToInt64())
                     {
+                        // 未对齐 / 跳缓冲区末尾的守卫：以前只判了 RecordLength == 0，
+                        // 内核返回的最后一行经常是跳批次边的截断记录，
+                        // Marshal.PtrToStructure 会读越界（未定义行为），
+                        // PtrToStringUni 则可能抛 ArgumentException 把整个扫描掉掉。
+                        if (end.ToInt64() - ptr.ToInt64() < minRecordLen) break;
+
                         var rec = Marshal.PtrToStructure<USN_RECORD_V2>(ptr);
-                        if (rec.RecordLength == 0) break;
+                        if (rec.RecordLength < minRecordLen) break;
+                        if (ptr.ToInt64() + rec.RecordLength > end.ToInt64()) break;
 
                         int nameLen = rec.FileNameLength / 2; // UTF-16
+                        // 名字必须完整落在本记录里，否则跳过这条（不能拿它去 Marshal）
+                        if (rec.FileNameOffset + rec.FileNameLength > rec.RecordLength)
+                        {
+                            ptr += (int)rec.RecordLength;
+                            continue;
+                        }
+
                         string name = Marshal.PtrToStringUni(
                             ptr + rec.FileNameOffset, nameLen) ?? string.Empty;
 
@@ -480,21 +511,48 @@ namespace ZhenhuaDiskCleaner.Services
             return rootNode;
         }
 
-        private static void BuildPaths(FileNode node, string currentPath)
+        /// <summary>
+        /// 递归给目录填 FullPath。改成显式栈：目录深度是可以上百层的
+        /// （node_modules、虚拟机的快照目录），递归在这里会爆栈，
+        /// 而 StackOverflow 不受 try/catch 控，直接进进程。
+        /// </summary>
+        private static void BuildPaths(FileNode root, string rootPath)
         {
-            node.FullPath = currentPath;
-            foreach (var child in node.Children)
+            var stack = new Stack<(FileNode Dir, string Path)>();
+            stack.Push((root, rootPath));
+
+            while (stack.Count > 0)
             {
-                if (child.IsDirectory)
-                    BuildPaths(child, Path.Combine(currentPath, child.Name));
+                var (dir, path) = stack.Pop();
+                dir.FullPath = path;
+                foreach (var child in dir.Children)
+                    if (child.IsDirectory)
+                        stack.Push((child, Path.Combine(path, child.Name)));
             }
         }
 
-        private static void AccumulateSizes(FileNode node)
+        /// <summary>自底向上汇总目录大小（同样用显式栈后序，不用递归）。</summary>
+        private static void AccumulateSizes(FileNode root)
         {
-            if (!node.IsDirectory) return;
-            foreach (var c in node.Children) AccumulateSizes(c);
-            node.Size = node.Children.Sum(c => c.Size);
+            var stack = new Stack<(FileNode Dir, bool Expanded)>();
+            stack.Push((root, false));
+
+            while (stack.Count > 0)
+            {
+                var (dir, expanded) = stack.Pop();
+
+                if (expanded)
+                {
+                    long sum = 0;
+                    foreach (var c in dir.Children) sum += c.Size;
+                    dir.Size = sum;
+                    continue;
+                }
+
+                stack.Push((dir, true));
+                foreach (var c in dir.Children)
+                    if (c.IsDirectory) stack.Push((c, false));
+            }
         }
 
         private struct MftEntry

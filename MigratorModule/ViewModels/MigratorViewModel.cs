@@ -100,7 +100,10 @@ namespace ZhenhuaDiskCleaner.MigratorModule.ViewModels
         [RelayCommand]
         private async Task RefreshAsync()
         {
+            // 先取消上一轮尺寸统计再 Dispose，否则旧的 CTS 会泄漏
             _scanCts?.Cancel();
+            _scanCts?.Dispose();
+            _scanCts = null;
             await LoadAsync();
         }
 
@@ -260,7 +263,25 @@ namespace ZhenhuaDiskCleaner.MigratorModule.ViewModels
             Logs.Clear();
             StatusMessage = "正在准备迁移…";
 
-            await _svc.StartAsync(selected);
+            // 必须用 try/finally：StartAsync 里任何未处理的异常都会把 IsMigrating
+            // 永远卡在 true，而 CanMigrate 依赖它 → 迁移按钮再也点不动，只能重启程序
+            try
+            {
+                await _svc.StartAsync(selected);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = "迁移异常终止：" + ex.Message;
+                MessageBox.Show(
+                    "迁移过程中发生未预期的错误：\n\n" + ex.Message +
+                    "\n\n源文件未被删除，请查看迁移日志。",
+                    "迁移失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                IsMigrating = false;
+                MigrateCommand.NotifyCanExecuteChanged();
+            }
         }
 
         [RelayCommand]
@@ -319,7 +340,9 @@ namespace ZhenhuaDiskCleaner.MigratorModule.ViewModels
 
             RefreshDriveFree();
 
-            // 异步计算大小
+            // 异步计算大小（上一轮的令牌先释放）
+            _scanCts?.Cancel();
+            _scanCts?.Dispose();
             _scanCts = new CancellationTokenSource();
             await FolderScanService.FillSizesAsync(Folders, _scanCts.Token);
 
@@ -434,7 +457,14 @@ namespace ZhenhuaDiskCleaner.MigratorModule.ViewModels
                 : $"源文件夹清理完成，删除 {totalDeleted} 个，跳过 {totalSkipped} 个（被占用）";
         }
 
+        /// <summary>
+        /// 把服务端的后台回调拍回 UI 线程。
+        /// 用 BeginInvoke（异步投递）而不是 Invoke（同步阻塞）：robocopy 每输出一行
+        /// 就会走一次这里，同步阻塞会把读输出的线程卡在 UI 队列上，反过来又拖慢
+        /// robocopy 的管道消费。日志/进度顺序仍由 Dispatcher 的 FIFO 保证。
+        /// Application.Current 为 null（设计时/窗口已关）时直接丢弃，不抱。
+        /// </summary>
         private static void Dispatch(Action action) =>
-            Application.Current.Dispatcher.Invoke(action);
+            Application.Current?.Dispatcher.BeginInvoke(action);
     }
 }

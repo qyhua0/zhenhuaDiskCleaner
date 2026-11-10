@@ -49,6 +49,28 @@ namespace ZhenhuaDiskCleaner.ViewModels
             _scanner.ScanCompleted   += OnScanCompleted;
             _scanner.ErrorOccurred   += OnScanError;
             _watcher.Changed         += OnFsChanged;
+
+            // 快速扫描器复用同一组处理器：构造函数里一次性订阅。
+            // 以前在 QuickScanAsync 里每点一次做一轮 -= / +=，能工作但没必要。
+            _quickScanner.ProgressChanged += OnScanProgress;
+            _quickScanner.ScanCompleted   += OnScanCompleted;
+            _quickScanner.ErrorOccurred   += OnScanError;
+
+            // 清理服务的回调只能在这里订阅一次。原先写在 OneKeyCleanAsync 里，
+            // 每点一次「一键清理」就多挂一对 lambda 且从不摘除：
+            // 第 N 次清理时同一条状态会被推 N 次，lambda 还把本 VM 永久钉在服务上。
+            _cleaner.ProgressChanged += msg =>
+                Application.Current?.Dispatcher.InvokeAsync(() => CleanStatus = msg);
+
+            _cleaner.Completed += bytes =>
+                Application.Current?.Dispatcher.InvokeAsync(() =>
+                {
+                    IsCleaning = false;
+                    HasCleanResult = true;
+                    CleanResultText = $"清理完成！共释放 {FileNode.FormatSize(bytes)}";
+                    CleanStatus = CleanResultText;
+                    StatusMessage = CleanResultText;
+                });
         }
 
         private void LoadDrives()
@@ -68,7 +90,18 @@ namespace ZhenhuaDiskCleaner.ViewModels
             FileListItems.Clear(); FileTypeStats.Clear();
             ScanProgress = new ScanProgress(); IsScanning = true;
             StatusMessage = "正在扫描...";
-            await _scanner.ScanAsync(path);
+
+            // try/finally 不可省：ScanAsync 招任何异常都会把 IsScanning 卡在 true，
+            // 而 CanScan 依赖它 → 扫描/快速扫描按钮全部变灰，只能重启程序
+            try
+            {
+                await _scanner.ScanAsync(path);
+            }
+            catch (Exception ex)
+            {
+                IsScanning = false;
+                StatusMessage = "扫描失败: " + ex.Message;
+            }
         }
 
         [RelayCommand]
@@ -96,14 +129,17 @@ namespace ZhenhuaDiskCleaner.ViewModels
             ScanProgress = new ScanProgress(); IsScanning = true;
             StatusMessage = "⚡ 快速扫描中（读取 MFT）...";
 
-            _quickScanner.ProgressChanged -= OnScanProgress;
-            _quickScanner.ScanCompleted -= OnScanCompleted;
-            _quickScanner.ErrorOccurred -= OnScanError;
-            _quickScanner.ProgressChanged += OnScanProgress;
-            _quickScanner.ScanCompleted += OnScanCompleted;
-            _quickScanner.ErrorOccurred += OnScanError;
+            // 订阅已移到构造函数（同一组处理器只需挂一次）
 
-            await _quickScanner.ScanAsync(root);
+            try
+            {
+                await _quickScanner.ScanAsync(root);
+            }
+            catch (Exception ex)
+            {
+                IsScanning = false;
+                StatusMessage = "快速扫描失败: " + ex.Message;
+            }
         }
 
         [RelayCommand]
@@ -148,21 +184,44 @@ namespace ZhenhuaDiskCleaner.ViewModels
 
         private void OnFsChanged(string path, WatcherChangeTypes change)
         {
+            // 磁盘忙时（Windows Update、解压、拷贝大文件）每秒能推上千条事件，
+            // 每条一个 Dispatcher 投递会把 UI 线程淡没，而它换来的只是状态栏一行字。
+            // 按 300ms 合流；最后一条偶发性地不上屏，对状态栏文案无害。
+            long now = Environment.TickCount64;
+            if (now - Interlocked.Read(ref _lastFsStatusTicks) < 300) return;
+            Interlocked.Exchange(ref _lastFsStatusTicks, now);
+
+            var name = Path.GetFileName(path);
             Application.Current?.Dispatcher.InvokeAsync(() =>
-                StatusMessage = "文件变更: " + Path.GetFileName(path));
+                StatusMessage = "文件变更: " + name);
         }
+
+        private long _lastFsStatusTicks;
 
         private void BuildFileList(FileNode root)
         {
-            FileListItems.Clear();
-            foreach (var item in Flatten(root).OrderByDescending(f => f.Size).Take(500))
-                FileListItems.Add(item);
+            // 排序取前 500 后整体替换集合：逐条 Add 会触发 500 次
+            // CollectionChanged，DataGrid 跟着重绘 500 次；赋值只触发一次 PropertyChanged。
+            FileListItems = new System.Collections.ObjectModel.ObservableCollection<FileNode>(
+                Flatten(root).OrderByDescending(f => f.Size).Take(500));
         }
 
-        private static IEnumerable<FileNode> Flatten(FileNode n)
+        /// <summary>
+        /// 迭代式深度优先展开整棵树。
+        /// 旧的写法是「yield return + 递归」，在深层目录（node_modules、虚拟机镜像
+        /// 目录动辄上百层）上有爆栈风险，而 StackOverflow 不受 try/catch 管，直接闪退。
+        /// </summary>
+        private static IEnumerable<FileNode> Flatten(FileNode root)
         {
-            yield return n;
-            foreach (var c in n.Children) foreach (var x in Flatten(c)) yield return x;
+            var stack = new Stack<FileNode>();
+            stack.Push(root);
+            while (stack.Count > 0)
+            {
+                var n = stack.Pop();
+                yield return n;
+                for (int i = n.Children.Count - 1; i >= 0; i--)
+                    stack.Push(n.Children[i]);
+            }
         }
 
         private void BuildTypeStats(FileNode root)
@@ -186,15 +245,27 @@ namespace ZhenhuaDiskCleaner.ViewModels
                     Type = kv.Key, TypeName = tn ?? "其他",
                     TotalSize = kv.Value.size, Count = kv.Value.count,
                     Percentage = (double)kv.Value.size / total * 100,
-                    Color = new FileNode { FileType = kv.Key }.TypeColor
+                    Color = FileNode.GetColor(kv.Key)
                 });
             }
         }
 
-        private static void Collect(FileNode n, Dictionary<FileType, (long, int)> d)
+        /// <summary>迭代式统计各类型（同 Flatten，不把目录深度压在调用栈上）。</summary>
+        private static void Collect(FileNode root, Dictionary<FileType, (long, int)> d)
         {
-            if (!n.IsDirectory) { d.TryGetValue(n.FileType, out var c); d[n.FileType] = (c.Item1 + n.Size, c.Item2 + 1); }
-            foreach (var child in n.Children) Collect(child, d);
+            var stack = new Stack<FileNode>();
+            stack.Push(root);
+            while (stack.Count > 0)
+            {
+                var n = stack.Pop();
+                if (!n.IsDirectory)
+                {
+                    d.TryGetValue(n.FileType, out var c);
+                    d[n.FileType] = (c.Item1 + n.Size, c.Item2 + 1);
+                }
+                for (int i = n.Children.Count - 1; i >= 0; i--)
+                    stack.Push(n.Children[i]);
+            }
         }
 
         partial void OnSelectedNodeChanged(FileNode? value)
@@ -298,21 +369,22 @@ namespace ZhenhuaDiskCleaner.ViewModels
             HasCleanResult = false;
             CleanStatus = "准备清理...";
 
-            _cleaner.ProgressChanged += msg =>
-                System.Windows.Application.Current?.Dispatcher.InvokeAsync(
-                    () => CleanStatus = msg);
-
-            _cleaner.Completed += bytes =>
-                System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
-                {
-                    IsCleaning = false;
-                    HasCleanResult = true;
-                    CleanResultText = $"清理完成！共释放 {FileNode.FormatSize(bytes)}";
-                    CleanStatus = CleanResultText;
-                    StatusMessage = CleanResultText;
-                });
-
-            await _cleaner.CleanAsync();
+            // 进度的订阅已在构造函数完成，这里只负责跑和兼管状态。
+            // 没有 try/finally 时，CleanAsync 一抛异常 IsCleaning 就永久为 true，
+            // 一键清理按钮再也不会响应。
+            try
+            {
+                await _cleaner.CleanAsync();
+            }
+            catch (Exception ex)
+            {
+                CleanStatus = "清理失败: " + ex.Message;
+                StatusMessage = CleanStatus;
+            }
+            finally
+            {
+                IsCleaning = false;
+            }
         }
     }
 }

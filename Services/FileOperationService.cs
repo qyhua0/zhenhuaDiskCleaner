@@ -127,39 +127,62 @@ namespace ZhenhuaDiskCleaner.Services
             catch { }
         }
 
-        public async System.Threading.Tasks.Task<HashResult> ComputeHashAsync(string filePath)
+        /// <summary>
+        /// 算一个文件的四种摘要。
+        /// 以前是 MD5/SHA1/SHA256/SHA512 各开一个 FileStream 并发跑，
+        /// 同一个文件被从头到尾读四遍（机械盘上磁头还要来回甩），
+        /// 现在改成单遍顺序读 + 四个 TransformBlock，IO 量降到 1/4。
+        /// </summary>
+        public async Task<HashResult> ComputeHashAsync(string filePath)
         {
             var result = new HashResult();
             try
             {
-                var t1 = ComputeHash(MD5.Create(), filePath);
-                var t2 = ComputeHash(SHA1.Create(), filePath);
-                var t3 = ComputeHash(SHA256.Create(), filePath);
-                var t4 = ComputeHash(SHA512.Create(), filePath);
-                var results = await System.Threading.Tasks.Task.WhenAll(t1, t2, t3, t4);
-                result.MD5 = results[0]; result.SHA1 = results[1];
-                result.SHA256 = results[2]; result.SHA512 = results[3];
+                var hashes = await Task.Run(() => ComputeAllHashes(filePath)).ConfigureAwait(false);
+                result.MD5     = hashes[0];
+                result.SHA1    = hashes[1];
+                result.SHA256  = hashes[2];
+                result.SHA512  = hashes[3];
             }
-            catch (System.Exception ex) { result.MD5 = "Error: " + ex.Message; }
+            catch (Exception ex) { result.MD5 = "Error: " + ex.Message; }
             return result;
         }
 
-        private static async System.Threading.Tasks.Task<string> ComputeHash(HashAlgorithm ha, string path)
+        /// <summary>单遍读文件同时更新四个哈希（在后台线程跑，故用同步 IO）。</summary>
+        private static string[] ComputeAllHashes(string path)
         {
-            using (ha)
+            using var md5    = MD5.Create();
+            using var sha1   = SHA1.Create();
+            using var sha256 = SHA256.Create();
+            using var sha512 = SHA512.Create();
+
+            const int Buffer = 1 << 20;   // 1 MB
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.Read, Buffer, FileOptions.SequentialScan);
+            var buffer = new byte[Buffer];
+
+            int read;
+            while ((read = fs.Read(buffer, 0, buffer.Length)) > 0)
             {
-                await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, true);
-                var hash = await System.Threading.Tasks.Task.Run(() => ha.ComputeHash(fs));
-                return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                md5.TransformBlock(buffer, 0, read, null, 0);
+                sha1.TransformBlock(buffer, 0, read, null, 0);
+                sha256.TransformBlock(buffer, 0, read, null, 0);
+                sha512.TransformBlock(buffer, 0, read, null, 0);
             }
+
+            // 空文件也必须 Final，否则 Hash 为 null
+            md5.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+            sha1.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+            sha256.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+            sha512.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+
+            return new[]
+            {
+                Hex(md5.Hash!), Hex(sha1.Hash!), Hex(sha256.Hash!), Hex(sha512.Hash!)
+            };
         }
 
-        private static async System.Threading.Tasks.Task<string> ComputeHash<T>(string path) where T : HashAlgorithm, new()
-        {
-            using var ha = new T();
-            await using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, true);
-            var hash = await System.Threading.Tasks.Task.Run(() => ha.ComputeHash(fs));
-            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
-        }
+        private static string Hex(byte[] hash) =>
+            BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
     }
 }

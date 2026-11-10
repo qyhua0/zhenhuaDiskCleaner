@@ -21,6 +21,8 @@ namespace ZhenhuaDiskCleaner.Services
         {
             if (IsScanning) return;
             IsScanning = true;
+            _cts?.Cancel();
+            _cts?.Dispose();
             _cts = new System.Threading.CancellationTokenSource();
             _sw.Restart();
             _scannedFiles = 0;
@@ -52,10 +54,17 @@ namespace ZhenhuaDiskCleaner.Services
                 var progress = new ScanProgress { TotalSize = totalSize };
                 var token = _cts.Token;
 
-                await Task.Run(() => ScanParallel(rootNode, progress, token), token);
+                await ScanParallelAsync(rootNode, progress, token);
 
                 if (!token.IsCancellationRequested)
                 {
+                    // 汇总子目录大小。以前 AccumulateSizes 定义了却从未调用，
+                    // 所以“递归深扫”模式下目录的 Size 只是本层直属文件之和：
+                    // 左侧树里的目录大小偏小、Treemap 的目录排序也不对，
+                    // 而“MFT 快速扫描”模式（NtfsQuickScanner）是会汇总的——
+                    // 同一个文件夹两种扫法给出两个数字。
+                    AccumulateSizes(rootNode);
+
                     progress.ScannedFiles = System.Threading.Interlocked.Read(ref _scannedFiles);
                     progress.ScannedSize = System.Threading.Interlocked.Read(ref _scannedSize);
                     progress.Elapsed = _sw.Elapsed;
@@ -72,7 +81,7 @@ namespace ZhenhuaDiskCleaner.Services
         // ---------------------------------------------------------------
         // 并行扫描核心：BFS 广度优先 + 工作线程池
         // ---------------------------------------------------------------
-        private void ScanParallel(FileNode rootNode, ScanProgress progress,
+        private async Task ScanParallelAsync(FileNode rootNode, ScanProgress progress,
             System.Threading.CancellationToken ct)
         {
             // Channel：目录任务队列（无界，生产快于消费时缓冲）
@@ -101,18 +110,28 @@ namespace ZhenhuaDiskCleaner.Services
                 }, ct, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
             }
 
-            // 等待所有目录处理完毕后关闭 Channel
-            Task.Run(async () =>
+            // 等所有目录处理完后关闭 Channel。
+            // 旧写法是 Task.Run(...).Wait(ct) + Task.WaitAll(workers, ct)：
+            // 一个专门的线程什么都不干只在阻塞等，而且这两行在 Task.Run 里跑，
+            // 等于长时间占住两个线程池线程（扫描越久占得越久）。
+            var watchdog = Task.Run(async () =>
             {
                 while (System.Threading.Interlocked.Read(ref pending) > 0)
                 {
                     if (ct.IsCancellationRequested) break;
-                    await Task.Delay(20, ct).ConfigureAwait(false);
+                    try { await Task.Delay(20, ct).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { break; }
                 }
-                dirChannel.Writer.Complete();
-            }, ct).Wait(ct);
+                dirChannel.Writer.TryComplete();
+            }, CancellationToken.None);
 
-            Task.WaitAll(workers, ct);
+            await watchdog.ConfigureAwait(false);
+
+            // 工人循环（ReadAllAsync）看到 Complete 后自然退出；
+            // 取消时 ReadAllAsync(ct) 会抛 OperationCanceledException → 这里吞掉
+            try { await Task.WhenAll(workers).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+            catch (AggregateException ex) when (ex.InnerException is OperationCanceledException) { }
         }
 
         private void ProcessDirectory(FileNode dirNode, Channel<FileNode> dirChannel,
@@ -204,8 +223,12 @@ namespace ZhenhuaDiskCleaner.Services
                 catch (UnauthorizedAccessException) { }
                 catch { }
 
-                // 更新目录自身大小（原子）
-                System.Threading.Interlocked.Add(ref _scannedSize, 0); // memory fence
+                // 更新目录自身大小（直属文件之和；子目录部分由扫描结束后的
+                // AccumulateSizes 统一汇总）。同一个 dirNode 只会被一个工人处理，
+                // 所以这里不需要原子操作。
+                // 原先上一行写的是 Interlocked.Add(ref _scannedSize, 0); // memory fence：
+                // .NET 内存模型下 Interlocked 本身已含 full fence，而 _scannedSize 的
+                // 读取走的就是 Interlocked.Read，这一句加 0 什幺也不做，只留个误导性注释。
                 dirNode.Size += dirSize;
 
                 // ---- 节流进度上报：最多每 80ms 一次 ----
@@ -236,12 +259,36 @@ namespace ZhenhuaDiskCleaner.Services
         // 扫描完成后自底向上汇总目录大小
         // （并行下子目录大小在父目录处理完后才能统计）
         // ---------------------------------------------------------------
-        private static void AccumulateSizes(FileNode node)
+        /// <summary>
+        /// 扫描完成后自底向上汇总目录大小（目录 Size = 所有子节点之和）。
+        /// 用显栈后序而不是递归：真实磁盘上 node_modules、备份目录动辄上百层，
+        /// 递归会爆栈（StackOverflow 不可捕获，直接闪退）。
+        /// </summary>
+        private static void AccumulateSizes(FileNode root)
         {
-            if (!node.IsDirectory) return;
-            foreach (var child in node.Children)
-                AccumulateSizes(child);
-            node.Size = node.Children.Sum(c => c.Size);
+            var stack = new Stack<(FileNode Dir, bool Expanded)>();
+            stack.Push((root, false));
+
+            while (stack.Count > 0)
+            {
+                var (dir, expanded) = stack.Pop();
+
+                if (expanded)
+                {
+                    long sum = 0;
+                    lock (dir.Children)
+                        foreach (var c in dir.Children) sum += c.Size;
+                    dir.Size = sum;
+                    continue;
+                }
+
+                stack.Push((dir, true));
+                lock (dir.Children)
+                {
+                    foreach (var c in dir.Children)
+                        if (c.IsDirectory) stack.Push((c, false));
+                }
+            }
         }
 
         public void Cancel() => _cts?.Cancel();

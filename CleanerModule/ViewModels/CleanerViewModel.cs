@@ -423,14 +423,26 @@ namespace ZhenhuaDiskCleaner.CleanerModule.ViewModels
 
                     if (result == MessageBoxResult.Yes)
                     {
-                        await Task.Delay(1000);
-                        Process.Start(new ProcessStartInfo
+                        // 这是一个 async void（Dispatcher.InvokeAsync 的 lambda），
+                        // 这里抛异常没人接 → 直接带崩进程，而用户刚刚才点了“重启”。
+                        try
                         {
-                            FileName = "shutdown",
-                            Arguments = "/r /t 10 /c \"振华磁盘清理：正在完成垃圾文件删除，10 秒后重启\"",
-                            UseShellExecute = false,
-                            CreateNoWindow = true
-                        });
+                            await Task.Delay(1000);
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = "shutdown",
+                                Arguments = "/r /t 10 /c \"振华磁盘清理：正在完成垃圾文件删除，10 秒后重启\"",
+                                UseShellExecute = false,
+                                CreateNoWindow = true
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            MessageBox.Show(
+                                "发起重启失败：" + ex.Message +
+                                "\n\n请手动重启计算机以完成删除。",
+                                "重启失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        }
                         return;
                     }
                 }
@@ -440,9 +452,18 @@ namespace ZhenhuaDiskCleaner.CleanerModule.ViewModels
                         MessageBoxButton.OK, MessageBoxImage.Information);
                 }
 
-                // 对话框关闭后重新扫描，刷新结果列表
-                await Task.Delay(400);
-                await StartScanAsync();
+                // 对话框关闭后重新扫描，刷新结果列表。
+                // 同样因为外层是 async void，StartScanAsync 里任何异常都会变成未处理异常，
+                // 所以这里兜住，只当成一行情报显示。
+                try
+                {
+                    await Task.Delay(400);
+                    await StartScanAsync();
+                }
+                catch (Exception ex)
+                {
+                    StatusMessage = "清理完成，但重新扫描失败：" + ex.Message;
+                }
             });
         }
 

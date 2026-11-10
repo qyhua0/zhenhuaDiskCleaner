@@ -95,40 +95,46 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
         private static Task<long> ComputeSizeAsync(string path, CancellationToken ct) =>
             Task.Run(() => SafeGetSize(new DirectoryInfo(path), ct), ct);
 
+        /// <summary>遇到无权限/被占用项直接跳过，不抛（所有目录枚举共用）。</summary>
+        private static readonly EnumerationOptions IgnoreInaccessible = new() { IgnoreInaccessible = true };
+
         /// <summary>
-        /// 递归累计目录大小，对每个子目录独立 try/catch，
-        /// 遇到无权限目录跳过而不是整体抛异常。
+        /// 累计目录大小。用显式栈而不是递归：下载/文档/OneDrive 这类用户目录
+        /// 的真实层级可以上百，递归在这里有爆栈风险，而 StackOverflow 不可 catch，
+        /// 会直接带走整个进程。无权限目录依旧逐个跳过；
+        /// 取消则继续向上抛 OperationCanceledException（由 FillSizesAsync 接手）。
         /// </summary>
-        private static long SafeGetSize(DirectoryInfo dir, CancellationToken ct)
+        private static long SafeGetSize(DirectoryInfo root, CancellationToken ct)
         {
             long total = 0;
-            ct.ThrowIfCancellationRequested();
+            var stack = new Stack<DirectoryInfo>();
+            stack.Push(root);
 
-            // 累计当前层文件
-            try
+            while (stack.Count > 0)
             {
-                foreach (var fi in dir.EnumerateFiles())
-                {
-                    ct.ThrowIfCancellationRequested();
-                    try { total += fi.Length; } catch { }
-                }
-            }
-            catch (UnauthorizedAccessException) { }
-            catch (IOException) { }
+                ct.ThrowIfCancellationRequested();
+                var dir = stack.Pop();
 
-            // 递归子目录，每个子目录独立容错
-            try
-            {
-                foreach (var sub in dir.EnumerateDirectories())
+                // 累计当前层文件（Length 已在枚举结果里，不再二次 stat）
+                try
                 {
-                    ct.ThrowIfCancellationRequested();
-                    try { total += SafeGetSize(sub, ct); }
-                    catch (UnauthorizedAccessException) { }
-                    catch (IOException) { }
+                    foreach (var fi in dir.EnumerateFiles("*", IgnoreInaccessible))
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        try { total += fi.Length; } catch { }
+                    }
                 }
+                catch (UnauthorizedAccessException) { }
+                catch (IOException) { }
+
+                try
+                {
+                    foreach (var sub in dir.EnumerateDirectories("*", IgnoreInaccessible))
+                        stack.Push(sub);
+                }
+                catch (UnauthorizedAccessException) { }
+                catch (IOException) { }
             }
-            catch (UnauthorizedAccessException) { }
-            catch (IOException) { }
 
             return total;
         }

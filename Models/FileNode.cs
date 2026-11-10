@@ -12,7 +12,26 @@ namespace ZhenhuaDiskCleaner.Models
 
         public string Name { get; set; } = string.Empty;
         public string FullPath { get; set; } = string.Empty;
-        public long Size { get; set; }
+
+        private long _size;
+
+        /// <summary>
+        /// 字节数。改这个值必须通知 UI：MainViewModel 的 Remove / ClearDirectory
+        /// 会回写父链和自己的 Size，不通知的话左侧树的目录大小会一直显示旧值。
+        /// 扫描阶段没有任何订阅者，事件为 null，开销可忽略。
+        /// </summary>
+        public long Size
+        {
+            get => _size;
+            set
+            {
+                if (_size == value) return;
+                _size = value;
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(SizeText));
+            }
+        }
+
         public bool IsDirectory { get; set; }
         public DateTime CreatedTime { get; set; }
         public DateTime ModifiedTime { get; set; }
@@ -37,7 +56,12 @@ namespace ZhenhuaDiskCleaner.Models
         public string TypeText => IsDirectory ? "文件夹" : GetFileTypeText();
         public WpfColor TypeColor => GetTypeColor();
 
-        private string GetFileTypeText() => FileType switch
+        private string GetFileTypeText() => GetTypeName(FileType);
+
+        private WpfColor GetTypeColor() => GetColor(FileType);
+
+        /// <summary>类型 → 显示名。供不需要构造整个节点的调用方使用。</summary>
+        public static string GetTypeName(FileType t) => t switch
         {
             FileType.Image      => "图片",
             FileType.Video      => "视频",
@@ -49,7 +73,12 @@ namespace ZhenhuaDiskCleaner.Models
             _                   => "其他"
         };
 
-        private WpfColor GetTypeColor() => FileType switch
+        /// <summary>
+        /// 类型 → 主题色。饼图统计以前为了拿一个颜色而 new 一整个 FileNode
+        /// （见 MainViewModel 的 BuildTypeStats），那个节点带一个 ObservableCollection，
+        /// 白付一次分配；改成静态查表。
+        /// </summary>
+        public static WpfColor GetColor(FileType t) => t switch
         {
             FileType.Image      => WpfColor.FromRgb(76,  175, 80),
             FileType.Video      => WpfColor.FromRgb(244, 67,  54),

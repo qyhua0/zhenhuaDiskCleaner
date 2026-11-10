@@ -46,6 +46,25 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
 
         private CancellationTokenSource? _cts;
 
+        // 进度折算用的实例状态（见 RaiseFolderProgress）
+        private int _totalFolders;
+        private int _doneFolders;
+
+        /// <summary>
+        /// 目录递归枚举的统一策略：<br/>
+        /// IgnoreInaccessible —— 无权限/被删的目录静默跳过，不再让整个统计半途失败；<br/>
+        /// AttributesToSkip 显式包含 ReparsePoint —— 不跟随 junction / 符号链接，
+        /// 避免 C:\Users\All Users 这类链接造成重复计数甚至环状递归。
+        /// </summary>
+        private static readonly EnumerationOptions IgnoreInaccessible = new()
+        {
+            IgnoreInaccessible     = true,
+            RecurseSubdirectories  = true,
+            AttributesToSkip       = FileAttributes.Hidden  |
+                                     FileAttributes.System   |
+                                     FileAttributes.ReparsePoint,
+        };
+
         // ── 公开方法 ──────────────────────────────────────────────────────────
 
         /// <summary>
@@ -75,11 +94,19 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
                     errors.Add($"[{item.DisplayName}] 目标路径与源路径相同"); continue;
                 }
 
-                // 目标不得是源的子目录
+                // 目标不得是源的子目录（复制时会把源套自己）
                 if (item.TargetPath.StartsWith(item.SourcePath + "\\",
                         StringComparison.OrdinalIgnoreCase))
                 {
                     errors.Add($"[{item.DisplayName}] 目标路径不能是源路径的子目录"); continue;
+                }
+
+                // 反向也不行：源在目标里面时，robocopy 边写边读同一棵树，
+                // 目标文件数永远追不上源，而且会无限套娃
+                if (item.SourcePath.StartsWith(item.TargetPath + "\\",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    errors.Add($"[{item.DisplayName}] 源路径不能是目标路径的子目录"); continue;
                 }
 
                 // 目标磁盘可用空间 ≥ 源大小 × 1.2
@@ -111,34 +138,39 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
         /// <summary>异步开始迁移，逐个处理已勾选的文件夹。</summary>
         public async Task StartAsync(List<FolderItem> selected)
         {
+            // 重入保护：上一次迁移的 CTS 必须先 Cancel + Dispose，
+            // 否则旧的取消令牌会泄漏（旧的连 robocopy 子进程都可能还在跑）
+            _cts?.Cancel();
+            _cts?.Dispose();
             _cts = new CancellationTokenSource();
             var token = _cts.Token;
             var results = new List<MigrationResult>();
-            int total = selected.Count;
+            int total = Math.Max(1, selected.Count);
             int done = 0;
 
-            Log(MigLogLevel.Info, $"开始迁移，共 {total} 个文件夹");
+            _totalFolders = total;
+            _doneFolders  = 0;
 
-            // 订阅 FolderProgress，实时折算到 OverallProgress
-            // 总进度 = (已完成文件夹数 + 当前文件夹进度/100) / 总数 × 100
-            FolderProgressChanged += folderPct =>
-            {
-                int overall = (int)((done + folderPct / 100.0) / total * 100);
-                OverallProgressChanged?.Invoke(Math.Clamp(overall, 0, 100));
-            };
+            Log(MigLogLevel.Info, $"开始迁移，共 {selected.Count} 个文件夹");
+
+            // 整体进度由 RaiseFolderProgress 统一折算：
+            //   总进度 = (已完成文件夹数 + 当前文件夹进度/100) / 总数 × 100
+            // 旧写法是在这里 FolderProgressChanged += lambda，每次迁移都多挂一个
+            // handler 且从不摘除，第 N 次迁移时同一条进度会被推送 N 次。
 
             foreach (var item in selected)
             {
                 if (token.IsCancellationRequested) break;
 
                 CurrentFolderChanged?.Invoke(item.DisplayName);
-                FolderProgressChanged?.Invoke(0);
+                RaiseFolderProgress(0);
                 Log(MigLogLevel.Info,
                     $"▶ [{item.DisplayName}] {item.SourcePath} → {item.TargetPath}");
 
                 var r = await MigrateOneAsync(item, token);
                 results.Add(r);
                 done++;
+                _doneFolders = done;
                 // 文件夹完成，整体进度精确推到该段末尾
                 OverallProgressChanged?.Invoke(done * 100 / total);
 
@@ -155,6 +187,19 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
         }
 
         public void Cancel() => _cts?.Cancel();
+
+        /// <summary>
+        /// 上报当前文件夹进度，并顺带折算整体进度。
+        /// 做成实例方法而不是在 StartAsync 里临时订阅 FolderProgressChanged：
+        /// 后者每次调用都会叠加一个 handler，导致进度回调成倍触发。
+        /// </summary>
+        private void RaiseFolderProgress(int pct)
+        {
+            FolderProgressChanged?.Invoke(pct);
+
+            int overall = (int)((_doneFolders + pct / 100.0) / _totalFolders * 100);
+            OverallProgressChanged?.Invoke(Math.Clamp(overall, 0, 100));
+        }
 
         /// <summary>
         /// 删除源文件夹。仅在迁移+注册表重定向均成功后调用。
@@ -175,53 +220,67 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
             return (deleted, skipped);
         }
 
-        private void DeleteDirectory(DirectoryInfo dir,
+        /// <summary>
+        /// 自底向上删除目录树。改成显栈是为了把递归深度从调用栈里拿掉：
+        /// 用户文件夹（node_modules、虚拟机镜像目录等）动辄上百层，
+        /// 旧的递归写法有真栈溢出风险（栈溢出不归 Exception 管，直接闪退）。
+        /// </summary>
+        private void DeleteDirectory(DirectoryInfo root,
             ref int deleted, ref int skipped, CancellationToken token)
         {
-            token.ThrowIfCancellationRequested();
+            // post-order：先压目录，弹出时若未展开则先展开子目录再压回自己
+            var stack = new Stack<(DirectoryInfo dir, bool expanded)>();
+            stack.Push((root, false));
 
-            // 先递归删子目录
-            try
+            while (stack.Count > 0)
             {
-                foreach (var sub in dir.EnumerateDirectories())
-                {
-                    token.ThrowIfCancellationRequested();
-                    DeleteDirectory(sub, ref deleted, ref skipped, token);
-                }
-            }
-            catch (UnauthorizedAccessException) { }
-            catch (IOException) { }
+                token.ThrowIfCancellationRequested();
+                var (dir, expanded) = stack.Pop();
 
-            // 再删当前目录的文件
-            try
-            {
-                foreach (var fi in dir.EnumerateFiles())
+                if (!expanded)
                 {
-                    token.ThrowIfCancellationRequested();
+                    stack.Push((dir, true));
                     try
                     {
-                        fi.Attributes = FileAttributes.Normal; // 去掉只读属性
-                        fi.Delete();
-                        deleted++;
+                        foreach (var sub in dir.EnumerateDirectories())
+                            stack.Push((sub, false));
                     }
-                    catch (Exception ex)
+                    catch (UnauthorizedAccessException) { }
+                    catch (IOException) { }
+                    continue;
+                }
+
+                // 子目录已处理完，现在删本层文件
+                try
+                {
+                    foreach (var fi in dir.EnumerateFiles())
                     {
-                        Log(MigLogLevel.Warning, $"  跳过（无法删除）：{fi.FullName} — {ex.Message}");
-                        skipped++;
+                        token.ThrowIfCancellationRequested();
+                        try
+                        {
+                            fi.Attributes = FileAttributes.Normal; // 去掉只读属性
+                            fi.Delete();
+                            deleted++;
+                        }
+                        catch (Exception ex)
+                        {
+                            Log(MigLogLevel.Warning, $"  跳过（无法删除）：{fi.FullName} — {ex.Message}");
+                            skipped++;
+                        }
                     }
                 }
-            }
-            catch (UnauthorizedAccessException) { }
-            catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+                catch (IOException) { }
 
-            // 最后尝试删目录本身（为空才能删除）
-            try
-            {
-                dir.Refresh();
-                if (!dir.EnumerateFileSystemInfos().Any())
-                    dir.Delete();
+                // 最后尝试删目录本身（为空才能删除）
+                try
+                {
+                    dir.Refresh();
+                    if (!dir.EnumerateFileSystemInfos().Any())
+                        dir.Delete();
+                }
+                catch { /* 目录非空或被占用，保留 */ }
             }
-            catch { /* 目录非空或被占用，保留 */ }
         }
 
         // ── 私有：迁移单个文件夹 ──────────────────────────────────────────────
@@ -234,17 +293,50 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
 
             try
             {
+                // Step 0 — 先统计源目录（文件数 + 字节数）
+                //   文件数 → robocopy 进度换算；两者 → 复制完成后的完整性校验
+                var (srcFiles, srcBytes) = await Task.Run(
+                    () => CountFilesAndBytes(item.SourcePath), token);
+                Log(MigLogLevel.Info,
+                    $"  源目录：{srcFiles:N0} 个文件，{FolderItem.FormatSize(srcBytes)}");
+
                 // Step 1 — 创建目标目录
                 Directory.CreateDirectory(item.TargetPath);
                 Log(MigLogLevel.Info, $"  目标目录已创建：{item.TargetPath}");
 
-                // Step 2 — robocopy 复制
-                bytes = await RobocopyAsync(item.SourcePath, item.TargetPath, token);
+                // Step 2 — robocopy 复制（complete=false 代有文件根本没复制成功）
+                bool complete = await RobocopyAsync(
+                    item.SourcePath, item.TargetPath, srcFiles, token);
 
-                // Step 3 — 写注册表重定向
+                if (!complete)
+                    throw new IOException(
+                        "复制不完整：有文件因权限不足或正被占用而未复制成功，"
+                        + "已保持原路径不变，也不会提供「删除源文件夹」选项");
+
+                // Step 3 — 完整性校验：这一步是“能不能删源”的唯一依据
+                var (dstFiles, dstBytes) = await Task.Run(
+                    () => CountFilesAndBytes(item.TargetPath), token);
+                bytes = dstBytes;
+
+                if (dstFiles < srcFiles || dstBytes < srcBytes)
+                {
+                    Log(MigLogLevel.Error,
+                        $"  ✖ 校验不通过：目标 {dstFiles:N0} 个 / " +
+                        $"{FolderItem.FormatSize(dstBytes)}，"
+                        + $"源 {srcFiles:N0} 个 / {FolderItem.FormatSize(srcBytes)}");
+                    throw new IOException(
+                        $"目标目录内容少于源目录（目标 {dstFiles:N0} 个文件/"
+                        + $"{FolderItem.FormatSize(dstBytes)}，源 {srcFiles:N0} 个文件/"
+                        + $"{FolderItem.FormatSize(srcBytes)}），为防丢数据已中止");
+                }
+
+                Log(MigLogLevel.Success,
+                    $"  校验通过：目标 {dstFiles:N0} 个文件，{FolderItem.FormatSize(dstBytes)}");
+
+                // Step 4 — 写注册表重定向（只有确认数据完整后才动注册表）
                 RedirectShellFolder(item.ShellFolderKey, item.TargetPath);
 
-                // Step 4 — 验证
+                // Step 5 — 验证注册表生效
                 string? actual = ReadShellFolder(item.ShellFolderKey);
                 if (!string.Equals(actual, item.TargetPath, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException(
@@ -277,8 +369,13 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
 
         // ── 私有：robocopy ────────────────────────────────────────────────────
 
-        private async Task<long> RobocopyAsync(
-            string src, string dst, CancellationToken token)
+        /// <summary>
+        /// 执行 robocopy 复制。
+        /// 返回 false 表示“复制不完整”（有文件被跳过），调用方必须据此判定失败，
+        /// 绝不能进入后续的注册表重定向和删源流程。
+        /// </summary>
+        private async Task<bool> RobocopyAsync(
+            string src, string dst, int srcFiles, CancellationToken token)
         {
             var psi = new ProcessStartInfo
             {
@@ -295,12 +392,16 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
             using var proc = new Process { StartInfo = psi };
             proc.Start();
 
+            // stderr 必须并发排空：它在下面才被读取，一旦 stderr 管道写满（~4KB）
+            // robocopy 会永久阻塞在写stderr 上，而我们又卡在等 stdout 关闭 → 死锁
+            var errTask = proc.StandardError.ReadToEndAsync();
+
             // 读取输出以防止缓冲区阻塞，同时解析进度
             int filesDone = 0;
             string? line;
-            while ((line = await proc.StandardOutput.ReadLineAsync()) != null)
+            while ((line = await proc.StandardOutput.ReadLineAsync(token)) != null)
             {
-                token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested) break;
 
                 // robocopy 每复制一个文件输出一行，统计行数估算进度
                 var trimmed = line.Trim();
@@ -308,47 +409,78 @@ namespace ZhenhuaDiskCleaner.MigratorModule.Services
                     !trimmed.StartsWith("\\") && trimmed.Contains("\\"))
                 {
                     filesDone++;
-                    // 进度不超过 95%，留空间给后续步骤
-                    int pct = Math.Min(95, filesDone * 2);
-                    FolderProgressChanged?.Invoke(pct);
+                    // 复制阶段最多占 90%，剩下给校验和注册表
+                    int pct = srcFiles > 0
+                        ? filesDone * 90 / srcFiles
+                        : filesDone * 2;              // 源文件数未知时保留旧估算
+                    FolderProgressChanged?.Invoke(Math.Min(90, pct));
                 }
             }
 
-            await proc.StandardError.ReadToEndAsync();
-            await Task.Run(() => proc.WaitForExit(), token);
+            // 取消时必须先杀掉子进程再报错。旧写法在循环里直接 throw，
+            // 后面的 Kill 永远执行不到 → robocopy 变成孤儿进程继续往目标目录写，
+            // 而上层已经开始回滚注册表，两边同时动同一批文件
+            if (token.IsCancellationRequested && !proc.HasExited)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { }
+                Log(MigLogLevel.Warning, "  已终止 robocopy 子进程");
+            }
+
+            string stderr;
+            try { stderr = await errTask; } catch { stderr = ""; }
 
             if (token.IsCancellationRequested)
-            {
-                try { proc.Kill(); } catch { }
-                throw new OperationCanceledException();
-            }
+                throw new OperationCanceledException(token);
+
+            await proc.WaitForExitAsync();
+            int code = proc.ExitCode;
 
             // robocopy 退出码 bit flags：
-            //   bit0 = 有文件被复制  bit1 = 有额外文件  bit2 = 不匹配
-            //   bit3 = 有文件跳过（警告，不终止）  bit5+(>=32) = 运行错误
-            if (proc.ExitCode >= 32)
-                throw new IOException($"robocopy 运行错误，退出码 {proc.ExitCode}");
+            //   1  = 有文件被复制            2  = 目标有多余文件
+            //   4  = 有文件属性/时间戳不一致  8  = 有文件被跳过（权限/占用）
+            //   16 = 有文件重试次数耗尽仍未成功
+            //   >=32 = 致命错误
+            // 旧代码只拦 >=32，bit3(8) 只记一条警告就当成功——而后续流程会删源目录。
+            if (code >= 32)
+                throw new IOException($"robocopy 致命错误，退出码 {code}"
+                    + (string.IsNullOrWhiteSpace(stderr) ? "" : $"：{stderr.Trim()}"));
 
-            if ((proc.ExitCode & 8) != 0)
-                Log(MigLogLevel.Warning, "  ⚠ 部分文件因权限不足被跳过");
+            if ((code & 16) != 0)
+                throw new IOException(
+                    $"robocopy 有文件多次重试仍未复制成功（退出码 {code}）");
 
-            FolderProgressChanged?.Invoke(100);
+            if ((code & 8) != 0)
+                Log(MigLogLevel.Error,
+                    "  ✖ 有文件因权限不足或正被占用而未复制（退出码 " + code + "）");
+            if ((code & 4) != 0)
+                Log(MigLogLevel.Warning, "  ⚠ 部分文件的属性/时间戳不一致");
+            if ((code & 2) != 0)
+                Log(MigLogLevel.Info, "  目标目录中存在源目录没有的文件（已保留）");
 
-            // 直接统计目标目录大小，不依赖 robocopy 输出解析
-            long copied = await Task.Run(() => GetDirSize(new DirectoryInfo(dst)), token);
-            return copied;
+            RaiseFolderProgress(90);
+
+            return (code & (8 | 16)) == 0;
         }
 
-        private static long GetDirSize(DirectoryInfo dir)
+        /// <summary>
+        /// 递归统计文件数与总字节数。无法访问的目录静默跳过，不跟随 junction。
+        /// 用于两处：复制前估源规模（进度换算）、复制后校验（删源许可判定）。
+        /// </summary>
+        private static (int files, long bytes) CountFilesAndBytes(string path)
         {
-            long total = 0;
+            int files = 0;
+            long bytes = 0;
             try
             {
-                foreach (var fi in dir.EnumerateFiles("*", SearchOption.AllDirectories))
-                    try { total += fi.Length; } catch { }
+                foreach (var fi in new DirectoryInfo(path)
+                    .EnumerateFiles("*", IgnoreInaccessible))
+                {
+                    files++;
+                    try { bytes += fi.Length; } catch { /* 统计期间文件被删 */ }
+                }
             }
-            catch { }
-            return total;
+            catch { /* 目录不存在或无权限 */ }
+            return (files, bytes);
         }
 
         // ── 私有：注册表操作 ──────────────────────────────────────────────────
